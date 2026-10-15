@@ -24,8 +24,8 @@ from db.models.projects import Project
 from loguru import logger
 from prometheus_client import Counter, Gauge, Histogram
 from services.ask_history import HISTORY_TURNS, Turn
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 RESUME = Path(__file__).resolve().parent.parent / "content" / "resume.md"
 MAX_QUESTION_CHARS = 500
@@ -167,15 +167,16 @@ def _resume_text() -> str:
     return re.sub(r"<!--.*?-->", "", RESUME.read_text(), flags=re.S).strip()
 
 
-def content_key(db: Session) -> tuple:
+async def content_key(db: AsyncSession) -> tuple:
     """Changes whenever published content does: cheap to ask on every question."""
     key = []
     for model in (Project, LabNote):
-        count, latest = (
-            db.query(func.count(model.id), func.max(model.updated_at))
-            .filter(model.published.is_(True))
-            .one()
+        result = await db.execute(
+            select(func.count(model.id), func.max(model.updated_at)).where(
+                model.published.is_(True)
+            )
         )
+        count, latest = result.one()
         key += [count, latest]
     return tuple(key)
 
@@ -232,7 +233,7 @@ def _render(
     return prompt, sources, texts
 
 
-def build_snapshot(db: Session, key: tuple) -> Snapshot:
+async def build_snapshot(db: AsyncSession, key: tuple) -> Snapshot:
     """
     Only published content: a draft must never leak through the chat. The
     order is fixed (by creation), so the prompt, and with it vLLM's prefix
@@ -246,15 +247,19 @@ def build_snapshot(db: Session, key: tuple) -> Snapshot:
     """
     projects = [
         (p, _project_text(p))
-        for p in db.query(Project)
-        .filter(Project.published.is_(True))
-        .order_by(Project.created_at, Project.id)
+        for p in await db.scalars(
+            select(Project)
+            .where(Project.published.is_(True))
+            .order_by(Project.created_at, Project.id)
+        )
     ]
     notes = [
         (n, _note_text(n))
-        for n in db.query(LabNote)
-        .filter(LabNote.published.is_(True))
-        .order_by(LabNote.created_at, LabNote.id)
+        for n in await db.scalars(
+            select(LabNote)
+            .where(LabNote.published.is_(True))
+            .order_by(LabNote.created_at, LabNote.id)
+        )
     ]
 
     budget = prompt_budget()
@@ -280,12 +285,14 @@ def build_snapshot(db: Session, key: tuple) -> Snapshot:
 _snapshot: Snapshot | None = None
 
 
-def snapshot(db: Session) -> Snapshot:
-    """The current snapshot, rebuilt only when published content changed."""
+async def snapshot(db: AsyncSession) -> Snapshot:
+    """The current snapshot, rebuilt only when published content changed.
+    Two questions arriving just after a change may both rebuild it; they
+    build the same one."""
     global _snapshot
-    key = content_key(db)
+    key = await content_key(db)
     if _snapshot is None or _snapshot.key != key:
-        _snapshot = build_snapshot(db, key)
+        _snapshot = await build_snapshot(db, key)
     return _snapshot
 
 

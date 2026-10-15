@@ -9,7 +9,7 @@ import httpx
 import pytest
 from api.routes import ask as ask_route
 from core import config
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
@@ -85,14 +85,23 @@ def add_note(db, name, published=True):
     return note
 
 
-def test_only_published_content_reaches_the_prompt(session_factory):
+async def build(async_sessions):
+    """The snapshot of what is published, read as the route reads it."""
+    async with async_sessions() as db:
+        return await ask.build_snapshot(db, await ask.content_key(db))
+
+
+@pytest.mark.anyio
+async def test_only_published_content_reaches_the_prompt(
+    session_factory, async_sessions
+):
     with session_factory() as db:
         add_project(db, "public", link="https://example.com/public")
         add_project(db, "draft", published=False)
         add_note(db, "public-note")
         add_note(db, "draft-note", published=False)
 
-        snap = ask.build_snapshot(db, ask.content_key(db))
+    snap = await build(async_sessions)
 
     assert "Project public" in snap.system_prompt
     assert "Body of public-note." in snap.system_prompt
@@ -106,9 +115,9 @@ def test_only_published_content_reaches_the_prompt(session_factory):
     assert "Project draft" not in titles
 
 
-def test_the_resume_is_in_the_prompt_without_private_details(session_factory):
-    with session_factory() as db:
-        snap = ask.build_snapshot(db, ask.content_key(db))
+@pytest.mark.anyio
+async def test_the_resume_is_in_the_prompt_without_private_details(async_sessions):
+    snap = await build(async_sessions)
 
     resume = snap.sources["R1"]
     assert resume.kind == "resume" and resume.url == "/resume.pdf"
@@ -119,32 +128,40 @@ def test_the_resume_is_in_the_prompt_without_private_details(session_factory):
     assert "510" not in snap.system_prompt
 
 
-def test_the_snapshot_is_rebuilt_only_when_content_changes(session_factory):
+@pytest.mark.anyio
+async def test_the_snapshot_is_rebuilt_only_when_content_changes(
+    session_factory, async_sessions
+):
     ask._snapshot = None
     with session_factory() as db:
         project = add_project(db, "changing")
-        first = ask.snapshot(db)
-        assert ask.snapshot(db) is first
+        async with async_sessions() as reader:
+            first = await ask.snapshot(reader)
+            assert await ask.snapshot(reader) is first
 
         project.published = False
         db.commit()
-        second = ask.snapshot(db)
+    async with async_sessions() as reader:
+        second = await ask.snapshot(reader)
 
     assert second is not first
     assert "Project changing" in first.system_prompt
     assert "Project changing" not in second.system_prompt
 
 
-def test_the_prompt_is_the_same_for_the_same_content(session_factory):
+@pytest.mark.anyio
+async def test_the_prompt_is_the_same_for_the_same_content(
+    session_factory, async_sessions
+):
     # The prefix cache only helps if the prompt is byte-for-byte identical.
     with session_factory() as db:
         add_project(db, "a")
         add_project(db, "b")
-        key = ask.content_key(db)
-        assert (
-            ask.build_snapshot(db, key).system_prompt
-            == ask.build_snapshot(db, key).system_prompt
-        )
+    async with async_sessions() as reader:
+        key = await ask.content_key(reader)
+        first = await ask.build_snapshot(reader, key)
+        again = await ask.build_snapshot(reader, key)
+    assert first.system_prompt == again.system_prompt
 
 
 def test_token_estimate_counts_chinese_per_character():
@@ -154,13 +171,13 @@ def test_token_estimate_counts_chinese_per_character():
     assert ask.estimate_tokens("GNN 研究") == 4  # 4 / 3.5 + 2, rounded up
 
 
-def test_prompt_size_and_budget_are_exported(session_factory, monkeypatch):
+@pytest.mark.anyio
+async def test_prompt_size_and_budget_are_exported(async_sessions, monkeypatch):
     from prometheus_client import REGISTRY
 
     monkeypatch.setattr(config, "ASK_CONTEXT_TOKENS", 16384)
     monkeypatch.setattr(config, "ASK_MAX_TOKENS", 400)
-    with session_factory() as db:
-        snap = ask.build_snapshot(db, ask.content_key(db))
+    snap = await build(async_sessions)
 
     assert REGISTRY.get_sample_value("ask_prompt_tokens") == ask.estimate_tokens(
         snap.system_prompt
@@ -171,8 +188,9 @@ def test_prompt_size_and_budget_are_exported(session_factory, monkeypatch):
     assert REGISTRY.get_sample_value("ask_documents_dropped") == 0
 
 
-def test_over_budget_leaves_out_the_oldest_notes_then_projects(
-    session_factory, monkeypatch
+@pytest.mark.anyio
+async def test_over_budget_leaves_out_the_oldest_notes_then_projects(
+    session_factory, async_sessions, monkeypatch
 ):
     from prometheus_client import REGISTRY
 
@@ -180,28 +198,25 @@ def test_over_budget_leaves_out_the_oldest_notes_then_projects(
         add_project(db, "old-project")
         add_note(db, "old-note")
         add_note(db, "new-note")
-        full = ask.build_snapshot(db, ask.content_key(db))
+    full = await build(async_sessions)
 
-        def fit(tokens):
-            # A context that leaves exactly `tokens` for the system prompt.
-            monkeypatch.setattr(
-                config,
-                "ASK_CONTEXT_TOKENS",
-                tokens
-                + config.ASK_MAX_TOKENS
-                + ask.QUESTION_TOKENS
-                + ask.history_tokens(),
-            )
-            return ask.build_snapshot(db, ask.content_key(db))
+    async def fit(tokens):
+        # A context that leaves exactly `tokens` for the system prompt.
+        monkeypatch.setattr(
+            config,
+            "ASK_CONTEXT_TOKENS",
+            tokens + config.ASK_MAX_TOKENS + ask.QUESTION_TOKENS + ask.history_tokens(),
+        )
+        return await build(async_sessions)
 
-        one_short = fit(ask.estimate_tokens(full.system_prompt) - 1)
-        titles = {s.title for s in one_short.sources.values()}
-        assert "Note old-note" not in titles
-        assert {"Note new-note", "Project old-project", "Resume"} <= titles
-        assert REGISTRY.get_sample_value("ask_documents_dropped") == 1
+    one_short = await fit(ask.estimate_tokens(full.system_prompt) - 1)
+    titles = {s.title for s in one_short.sources.values()}
+    assert "Note old-note" not in titles
+    assert {"Note new-note", "Project old-project", "Resume"} <= titles
+    assert REGISTRY.get_sample_value("ask_documents_dropped") == 1
 
-        resume_only = fit(1)
-        assert set(resume_only.sources) == {"R1"}
+    resume_only = await fit(1)
+    assert set(resume_only.sources) == {"R1"}
 
 
 # ── citations ────────────────────────────────────────────────────────────────
@@ -262,7 +277,11 @@ def model(monkeypatch):
         return sent
 
     monkeypatch.setattr(config, "ASK_URL", "http://model.test")
-    monkeypatch.setattr(ask_route, "snapshot", lambda db: SNAPSHOT)
+
+    async def fixed(db):
+        return SNAPSHOT
+
+    monkeypatch.setattr(ask_route, "snapshot", fixed)
     monkeypatch.setattr(ask_route, "_generating", None)
     return serve
 
@@ -272,14 +291,18 @@ def stored(monkeypatch):
     """What the route stores of each question, instead of the database
     (tests/test_ask_questions.py covers the database side)."""
     entries = []
-    monkeypatch.setattr(ask_log, "record", entries.append)
+
+    async def record(entry):
+        entries.append(entry)
+
+    monkeypatch.setattr(ask_log, "record", record)
     return entries
 
 
 class FakeSession:
     closed = False
 
-    def close(self):
+    async def close(self):
         FakeSession.closed = True
 
 
@@ -287,7 +310,7 @@ class FakeSession:
 def app():
     FakeSession.closed = False
     application = get_application()
-    application.dependency_overrides[get_db] = FakeSession
+    application.dependency_overrides[get_async_db] = FakeSession
     return application
 
 
@@ -526,7 +549,10 @@ def test_the_model_is_told_which_document_the_passage_is_in():
 def test_an_answer_about_a_passage_lists_its_document(
     model, client, monkeypatch, reply, expected
 ):
-    monkeypatch.setattr(ask_route, "snapshot", lambda db: PLACED)
+    async def placed(db):
+        return PLACED
+
+    monkeypatch.setattr(ask_route, "snapshot", placed)
     model(model_stream(reply))
 
     response = client.post(

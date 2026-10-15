@@ -55,18 +55,25 @@ def sign_in(redis, monkeypatch):
 
 
 @pytest.fixture
-def async_db():
+def async_sessions():
     """
-    An override for get_async_db, against DATABASE_URL:
-    app.dependency_overrides[get_async_db] = async_db. NullPool, as
-    TestClient runs each request in an event loop of its own and a pooled
-    connection cannot be reused from another loop.
+    Async sessions against DATABASE_URL, like db.session.AsyncSessionLocal.
+    NullPool, as TestClient (or asyncio.run) runs in an event loop of its own
+    and a pooled connection cannot be reused from another loop.
     """
     engine = create_async_engine(async_url(DATABASE_URL), poolclass=NullPool)
-    sessions = async_sessionmaker(engine, autoflush=False, expire_on_commit=False)
+    return async_sessionmaker(engine, autoflush=False, expire_on_commit=False)
+
+
+@pytest.fixture
+def async_db(async_sessions):
+    """
+    An override for get_async_db:
+    app.dependency_overrides[get_async_db] = async_db.
+    """
 
     async def override():
-        async with sessions() as db:
+        async with async_sessions() as db:
             yield db
 
     return override

@@ -8,7 +8,7 @@ import httpx
 import pytest
 from api.dependencies import get_current_admin
 from core import config
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.autocomplete import AutocompleteSuggestion
 from db.session import Base
 from fastapi.testclient import TestClient
@@ -102,21 +102,14 @@ def session_factory():
 
 
 @pytest.fixture
-def client(session_factory, monkeypatch):
+def client(session_factory, async_db, monkeypatch):
     monkeypatch.setattr(config, "AUTOCOMPLETE_URL", "http://model.test")
     monkeypatch.setattr(config, "AUTOCOMPLETE_MODEL_VERSION", VERSION)
     monkeypatch.setattr(config, "AUTOCOMPLETE_MIN_TOKEN_PROB", 0.5)
     autocomplete._pending.clear()
 
-    def override_get_db():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
     app = get_application()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = async_db
     app.dependency_overrides[get_current_admin] = lambda: "admin"
     return TestClient(app)
 

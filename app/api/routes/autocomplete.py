@@ -5,7 +5,7 @@ from uuid import UUID
 import httpx
 from api.dependencies import CurrentAdmin
 from core import config
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.autocomplete import AutocompleteSuggestion
 from fastapi import APIRouter, Depends, HTTPException, Response
 from schemas.autocomplete import (
@@ -14,7 +14,7 @@ from schemas.autocomplete import (
     SuggestionFeedback,
 )
 from services import autocomplete
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ async def feedback(
     id: UUID,
     body: SuggestionFeedback,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Record a shown suggestion and what became of it, including where the
     author stopped taking it. Only the first report counts."""
@@ -109,12 +109,12 @@ async def feedback(
                 resolved_at=now,
             )
         )
-        db.commit()
+        await db.commit()
         return Response(status_code=204)
 
     # Already recorded (a repeated report), or stored before suggestions
     # waited for feedback.
-    row = db.get(AutocompleteSuggestion, id)
+    row = await db.get(AutocompleteSuggestion, id)
     if row is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     if row.outcome is None:
@@ -127,7 +127,7 @@ async def feedback(
             body.accepted_chars,
         )
         row.resolved_at = now
-        db.commit()
+        await db.commit()
     return Response(status_code=204)
 
 
