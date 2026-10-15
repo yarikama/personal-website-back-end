@@ -1,8 +1,9 @@
 import io
 
 import pytest
-from main import get_application
 from PIL import Image, UnidentifiedImageError
+
+from main import get_application
 from services import image_jobs
 from services.image_jobs import (
     GROUP,
@@ -144,8 +145,9 @@ async def test_reconcile_then_the_worker_backfills_old_images(redis):
 
 @pytest.mark.anyio
 async def test_uploading_an_image_queues_its_variants(redis, monkeypatch):
-    from api.dependencies.auth import get_current_admin
     from httpx import ASGITransport, AsyncClient
+
+    from api.dependencies.auth import get_current_admin
     from services.storage import storage_service
 
     async def fake_upload(file, folder):

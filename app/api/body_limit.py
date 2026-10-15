@@ -1,8 +1,9 @@
-from core.config import API_PREFIX
-from services.images import MAX_UPLOAD_BYTES
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from core.config import API_PREFIX
+from services.images import MAX_UPLOAD_BYTES
 
 # Uploads are images. Everything else is JSON: a whole note, or the text
 # before the cursor that autocomplete reads, fits many times over in 2 MB.

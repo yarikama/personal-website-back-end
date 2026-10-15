@@ -4,15 +4,16 @@ PostgreSQL, like the other database tests; only messages made here are
 deleted afterwards.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_db
 from db.models.contact import ContactMessage
-from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import delete
 
 PREFIX = "test-contact: "
 
@@ -44,7 +45,7 @@ def add(factory, subject, minutes_ago=0, **fields):
             email="visitor@example.com",
             subject=PREFIX + subject,
             message="Hello there, just saying hi.",
-            created_at=datetime.now() - timedelta(minutes=minutes_ago),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
             **fields,
         )
         db.add(message)

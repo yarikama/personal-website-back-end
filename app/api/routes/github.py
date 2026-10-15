@@ -1,10 +1,11 @@
 """The owner's GitHub contribution graph, for the admin's welcome page."""
 
 import httpx
-from api.dependencies import CurrentAdmin
-from core import config
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
+
+from api.dependencies import CurrentAdmin
+from core import config
 from services import github
 
 router = APIRouter()

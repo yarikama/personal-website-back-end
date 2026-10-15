@@ -4,10 +4,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from core import tracing
-from core.logging import add_trace_id
-from core.tracing import instrument, setup_tracing
-from db.session import engine
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -19,6 +15,11 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 from sqlalchemy import text
+
+from core import tracing
+from core.logging import add_trace_id
+from core.tracing import instrument, setup_tracing
+from db.session import engine
 
 
 @pytest.fixture

@@ -8,13 +8,14 @@ import asyncio
 from datetime import date
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, func, select
+
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_db
 from db.models.todo import AdminTodo
-from fastapi.testclient import TestClient
 from main import get_application
 from services import todos
-from sqlalchemy import delete, func, select
 
 MON, TUE, WED = date(2001, 1, 1), date(2001, 1, 2), date(2001, 1, 3)
 

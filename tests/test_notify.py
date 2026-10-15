@@ -1,14 +1,16 @@
 import smtplib
 import uuid
+from typing import Any, ClassVar
 
 import pytest
+from fastapi.testclient import TestClient
+from starlette.datastructures import Secret
+
 from core import config
 from db.dependency import get_db
-from fastapi.testclient import TestClient
 from main import get_application
 from services import notify
 from services.notify import NewMessage, build_email, send_contact_notification
-from starlette.datastructures import Secret
 
 MESSAGE = NewMessage(
     name="Ada Lovelace",
@@ -19,7 +21,7 @@ MESSAGE = NewMessage(
 
 
 class FakeSMTP:
-    sent: list = []
+    sent: ClassVar[list[tuple[Any, ...]]] = []
     fail = False
 
     def __init__(self, host, port, timeout):
@@ -87,7 +89,7 @@ def test_sends_over_smtp_with_the_configured_account(smtp):
 
     send_contact_notification(MESSAGE)
 
-    [(address, credentials, email)] = smtp.sent
+    [(address, credentials, _email)] = smtp.sent
     assert address == ("smtp.gmail.com", 587)
     assert credentials == ("site@example.com", "app-password")
     assert sent_total("sent") == before + 1

@@ -1,11 +1,12 @@
 import datetime as dt
 import uuid
 
-from db.session import Base
 from sqlalchemy import Boolean, Date, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+
+from db.session import Base
 
 
 class LabNote(Base):

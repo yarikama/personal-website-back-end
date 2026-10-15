@@ -1,15 +1,16 @@
 import os
 
 import pytest
-from core import config
-from db.session import Base, psycopg_url
 from fakeredis import FakeAsyncRedis
 from redis.asyncio import Redis
-from services import admin_session
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
+
+from core import config
+from db.session import Base, psycopg_url
+from services import admin_session
 
 ADMIN = "owner@example.com"
 DATABASE_URL = os.getenv(

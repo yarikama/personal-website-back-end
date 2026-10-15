@@ -1,9 +1,10 @@
-from api.dependencies.rate_limit import get_rate_limiter, wait_in_words
-from core.config import API_PREFIX
-from services.rate_limit import PUBLIC, client_id, retry_after_header
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from api.dependencies.rate_limit import get_rate_limiter, wait_in_words
+from core.config import API_PREFIX
+from services.rate_limit import PUBLIC, client_id, retry_after_header
 
 # Admin routes need a valid token already, and the editor calls
 # autocomplete on every pause in typing: a public budget would only get in

@@ -14,6 +14,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -58,7 +59,7 @@ class Vercel:
     team: str
 
 
-def _count(name: object, row: dict) -> Count:
+def _count(name: object, row: dict[str, Any]) -> Count:
     return Count(
         name="" if name is None else str(name),
         pageviews=int(row.get("pageviews") or 0),
@@ -73,7 +74,7 @@ async def _aggregate(
     since: datetime,
     until: datetime,
     limit: int | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     params: dict[str, str | int] = {
         "projectId": vercel.project,
         "by": by,
@@ -123,7 +124,7 @@ async def report(
     first = until.date() - timedelta(days=days - 1)
     since = datetime(first.year, first.month, first.day, tzinfo=timezone.utc)
 
-    async def ask(by: str, limit: int | None = None) -> list[dict]:
+    async def ask(by: str, limit: int | None = None) -> list[dict[str, Any]]:
         return await _aggregate(http, vercel, by, since, until, limit)
 
     try:
@@ -148,7 +149,7 @@ async def report(
     by_day = {str(row.get("timestamp", ""))[:10]: row for row in daily}
     all_days = [(first + timedelta(days=i)).isoformat() for i in range(days)]
 
-    def top(rows: list[dict], dimension: str) -> tuple[Count, ...]:
+    def top(rows: list[dict[str, Any]], dimension: str) -> tuple[Count, ...]:
         counts = [_count(row.get(dimension), row) for row in rows]
         return tuple(sorted(counts, key=lambda count: count.pageviews, reverse=True))
 

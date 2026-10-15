@@ -4,6 +4,7 @@ import pytest
 from prometheus_client import REGISTRY
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
+
 from services import jobs
 from services.jobs import Worker, dead_letter_stream, enqueue, queue_depth
 

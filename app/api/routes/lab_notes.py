@@ -1,26 +1,28 @@
+from typing import Annotated, Any
 from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Path, Query
+from sqlalchemy import Select, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.crud import ensure_unique, get_or_404
 from api.dependencies import CurrentAdmin
 from core.paginator import paginate
 from db.dependency import DB
 from db.models.lab_notes import LabNote
-from fastapi import APIRouter, HTTPException, Path, Query
 from schemas.lab_notes import (
     LabNoteCreate,
     LabNoteListResponse,
     LabNoteResponse,
     LabNoteUpdate,
 )
-from sqlalchemy import Select, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
 async def list_notes(
-    db: AsyncSession, query: Select, tag: str | None, limit: int, offset: int
-) -> dict:
+    db: AsyncSession, query: Select[Any], tag: str | None, limit: int, offset: int
+) -> dict[str, Any]:
     """A page of `query`'s notes, newest first, optionally only one tag's."""
     if tag:
         query = query.where(LabNote.tags.contains([tag]))
@@ -37,9 +39,9 @@ async def list_notes(
 async def get_all_lab_notes_admin(
     _admin: CurrentAdmin,
     db: DB,
-    tag: str | None = Query(None),
-    limit: int = Query(10, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    tag: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Admin endpoint: Get all lab notes including unpublished."""
     return await list_notes(db, select(LabNote), tag, limit, offset)
@@ -101,9 +103,9 @@ async def delete_lab_note(id: UUID, _admin: CurrentAdmin, db: DB):
 @router.get("/lab-notes")
 async def get_lab_notes(
     db: DB,
-    tag: str | None = Query(None),
-    limit: int = Query(10, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    tag: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Public endpoint: Get only published lab notes."""
     published = select(LabNote).where(LabNote.published.is_(True))
@@ -129,7 +131,9 @@ async def get_lab_notes_tags(db: DB):
 
 
 @router.get("/lab-notes/{slug}")
-async def get_lab_note(db: DB, slug: str = Path(..., min_length=1, max_length=255)):
+async def get_lab_note(
+    db: DB, slug: Annotated[str, Path(min_length=1, max_length=255)]
+):
     """Public endpoint: Get a single published lab note by slug."""
     lab_note = await db.scalar(
         select(LabNote).where(LabNote.slug == slug, LabNote.published.is_(True))

@@ -6,14 +6,15 @@ name or slug starting with PREFIX and is deleted afterwards.
 """
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
-from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import delete
 
 PREFIX = "test-admin-"
 

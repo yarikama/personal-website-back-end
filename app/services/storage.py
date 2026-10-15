@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 
 import aioboto3
 from aiobotocore.config import AioConfig
-from core import config
 from fastapi import HTTPException, UploadFile
+
+from core import config
 from services.images import (
     MAX_UPLOAD_BYTES,
     WIDTHS,

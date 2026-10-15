@@ -2,14 +2,15 @@ import io
 from contextlib import asynccontextmanager
 
 import pytest
-from api import body_limit
 from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
-from main import get_application
 from PIL import Image
+from starlette.datastructures import Headers
+
+from api import body_limit
+from main import get_application
 from services import images
 from services.storage import R2StorageService
-from starlette.datastructures import Headers
 
 client = TestClient(get_application())
 

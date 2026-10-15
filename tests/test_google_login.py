@@ -5,15 +5,17 @@ token made here.
 """
 
 import time
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
 import pytest
+from fastapi import APIRouter
+from httpx import ASGITransport, AsyncClient
+
 from api.dependencies import CurrentAdmin
 from api.routes import auth
 from core import config
-from fastapi import APIRouter
-from httpx import ASGITransport, AsyncClient
 from main import get_application
 from services import admin_session, google_oauth
 
@@ -50,7 +52,7 @@ class Google:
     for whichever nonce the sign-in sent, with any claims overridden."""
 
     def __init__(self) -> None:
-        self.claims: dict = {}
+        self.claims: dict[str, Any] = {}
         self.codes: list[tuple[str, str]] = []
         # Set by token_endpoint from the state the sign-in kept.
         self.nonce = ""

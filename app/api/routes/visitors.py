@@ -1,10 +1,13 @@
 """The site's visitors, for the admin, from Vercel Web Analytics."""
 
+from typing import Annotated, Any
+
 import httpx
-from api.dependencies import CurrentAdmin
-from core import config
 from fastapi import APIRouter, HTTPException, Query, status
 from loguru import logger
+
+from api.dependencies import CurrentAdmin
+from core import config
 from services import visitors
 
 router = APIRouter()
@@ -13,14 +16,16 @@ router = APIRouter()
 TIMEOUT_SECONDS = 30
 
 
-def dump(count: visitors.Count, key: str = "name") -> dict:
+def dump(count: visitors.Count, key: str = "name") -> dict[str, Any]:
     return {key: count.name, "pageviews": count.pageviews, "visitors": count.visitors}
 
 
 @router.get("/admin/visitors")
 async def visitors_report(
     _admin: CurrentAdmin,
-    days: int = Query(7, ge=1, le=visitors.MAX_DAYS, description="Up to today (UTC)"),
+    days: Annotated[
+        int, Query(ge=1, le=visitors.MAX_DAYS, description="Up to today (UTC)")
+    ] = 7,
 ):
     """Page views and visitors over the last `days` days: the totals, each
     day, and the top pages, referrers, countries and devices."""

@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from db.session import Base
 from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
+from db.session import Base
 
 
 class AdminSeen(Base):

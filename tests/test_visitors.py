@@ -5,12 +5,13 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
+from starlette.datastructures import Secret
+
 from api.dependencies.auth import get_current_admin
 from core import config
-from fastapi.testclient import TestClient
 from main import get_application
 from services import visitors
-from starlette.datastructures import Secret
 
 NOW = datetime(2026, 10, 5, 21, 30, tzinfo=timezone.utc)
 VERCEL = visitors.Vercel("token-1", "portfolio", "yarikamas-projects")

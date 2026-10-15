@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from core import config
 from fastapi import Depends, HTTPException, Request, status
 from loguru import logger
+
+from core import config
 from services import admin_session
 
 # Requests that only read. Any other method sent with the session cookie

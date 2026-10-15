@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
+
 from core import config
 
 MAX_CONTEXT_CHARS = 2000  # about 500 tokens: enough context, fast prefill

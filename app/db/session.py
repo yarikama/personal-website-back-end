@@ -1,7 +1,8 @@
-from core.config import DATABASE_URL
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
+from core.config import DATABASE_URL
 
 
 def psycopg_url(url: str) -> URL:

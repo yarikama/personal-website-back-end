@@ -1,9 +1,10 @@
 """The owner's current goal, shown large on the admin's welcome page."""
 
+from fastapi import APIRouter
+
 from api.dependencies import CurrentAdmin
 from db.dependency import DB
 from db.models.admin_setting import AdminSetting
-from fastapi import APIRouter
 from schemas.goal import GoalResponse, GoalUpdate
 
 router = APIRouter()

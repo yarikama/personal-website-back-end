@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from db.session import Base
 from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+
+from db.session import Base
 
 
 class AutocompleteSuggestion(Base):

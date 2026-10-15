@@ -1,15 +1,17 @@
 """The admin's to-dos, on the welcome page (services/todos.py)."""
 
 from datetime import date
+from typing import Annotated
 from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import CurrentAdmin
 from db.dependency import DB
 from db.models.todo import AdminTodo
-from fastapi import APIRouter, HTTPException, Query, Response, status
 from schemas.todos import TodoCreate, TodoResponse, TodoUpdate
 from services import todos
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -25,7 +27,7 @@ async def find(db: AsyncSession, id: UUID) -> AdminTodo:
 async def list_todos(
     _admin: CurrentAdmin,
     db: DB,
-    day: date = Query(..., description="The owner's today, in their local time"),
+    day: Annotated[date, Query(description="The owner's today, in their local time")],
 ):
     rows = await todos.for_day(db, day)
     return {"data": [TodoResponse.model_validate(row) for row in rows]}
@@ -35,7 +37,7 @@ async def list_todos(
 async def todo_history(
     _admin: CurrentAdmin,
     db: DB,
-    limit: int = Query(200, ge=1, le=500),
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ):
     """Past to-dos' text, most recent first, to complete new ones from."""
     return {"data": await todos.history(db, limit)}

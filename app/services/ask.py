@@ -15,17 +15,19 @@ import re
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import httpx
+from loguru import logger
+from prometheus_client import Counter, Gauge, Histogram
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core import config
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
-from loguru import logger
-from prometheus_client import Counter, Gauge, Histogram
 from services.ask_history import HISTORY_TURNS, Turn
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 RESUME = Path(__file__).resolve().parent.parent / "content" / "resume.md"
 MAX_QUESTION_CHARS = 500
@@ -80,6 +82,11 @@ for _result in ("answered", "busy", "unavailable", "error", "cancelled"):
 _transport: httpx.AsyncBaseTransport | None = None
 
 
+# Each published model's row count and latest updated_at: it changes
+# whenever published content does.
+ContentKey = tuple[int | datetime | None, ...]
+
+
 @dataclass(frozen=True)
 class Source:
     id: str  # what the model cites: P1, N1, R1
@@ -93,7 +100,7 @@ class Source:
 class Snapshot:
     """The published content, rendered once into the system prompt."""
 
-    key: tuple
+    key: ContentKey
     system_prompt: str
     sources: dict[str, Source]
     # Each document's text as plain words (see plain()), to find which one
@@ -167,9 +174,9 @@ def _resume_text() -> str:
     return re.sub(r"<!--.*?-->", "", RESUME.read_text(), flags=re.S).strip()
 
 
-async def content_key(db: AsyncSession) -> tuple:
+async def content_key(db: AsyncSession) -> ContentKey:
     """Changes whenever published content does: cheap to ask on every question."""
-    key = []
+    key: list[int | datetime | None] = []
     for model in (Project, LabNote):
         result = await db.execute(
             select(func.count(model.id), func.max(model.updated_at)).where(
@@ -233,7 +240,7 @@ def _render(
     return prompt, sources, texts
 
 
-async def build_snapshot(db: AsyncSession, key: tuple) -> Snapshot:
+async def build_snapshot(db: AsyncSession, key: ContentKey) -> Snapshot:
     """
     Only published content: a draft must never leak through the chat. The
     order is fixed (by creation), so the prompt, and with it vLLM's prefix
@@ -391,7 +398,7 @@ class Answer:
             f"\n\n{self.question}"
         )
 
-    def messages(self) -> list[dict]:
+    def messages(self) -> list[dict[str, str]]:
         """The chat sent to the model: the documents, the conversation so
         far, then this question."""
         chat = [{"role": "system", "content": self.snapshot.system_prompt}]

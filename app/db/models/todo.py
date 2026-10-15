@@ -1,12 +1,13 @@
 import datetime as dt
 import uuid
 
-from db.session import Base
 from sqlalchemy import Boolean, Date, DateTime, Index, String, Text
 from sqlalchemy import text as sql
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+
+from db.session import Base
 
 
 class AdminTodo(Base):

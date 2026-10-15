@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from pydantic import StringConstraints
+
 from schemas.base import BaseSchema
 from services.ask import MAX_QUESTION_CHARS, MAX_QUOTE_CHARS
 

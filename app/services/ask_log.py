@@ -7,12 +7,14 @@ the visitor is stored.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from loguru import logger
+from sqlalchemy import delete
 
 from core import config
 from db.models.ask import AskQuestion
 from db.session import SessionLocal
-from loguru import logger
-from sqlalchemy import delete
 
 
 @dataclass
@@ -21,7 +23,7 @@ class Entry:
     quote: str | None
     page: str | None
     answer: str
-    citations: list[dict]
+    citations: list[dict[str, Any]]
     status: str  # answered | error
     truncated: bool
     output_tokens: int | None

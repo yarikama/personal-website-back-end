@@ -13,11 +13,12 @@ import secrets
 from urllib.parse import urlencode
 
 import httpx
-from api.dependencies.auth import CurrentAdmin
-from core import config
 from fastapi import APIRouter, Request, Response, status
 from fastapi.responses import RedirectResponse
 from loguru import logger
+
+from api.dependencies.auth import CurrentAdmin
+from core import config
 from schemas.auth import AdminResponse
 from services import admin_session, google_oauth
 
@@ -132,7 +133,7 @@ async def google_callback(
     return response
 
 
-@router.get("/auth/me", response_model=AdminResponse)
+@router.get("/auth/me")
 async def me(admin: CurrentAdmin) -> AdminResponse:
     """Who is signed in; 401 if no one. The site asks before admin pages."""
     return AdminResponse(email=admin)

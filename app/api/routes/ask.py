@@ -16,17 +16,19 @@ import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import asdict
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from api.dependencies.auth import current_admin
 from api.dependencies.rate_limit import rate_limit
 from core import config
 from db.dependency import DB
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
-from loguru import logger
 from schemas.ask import AskRequest
 from services import ask_history, ask_log
-from services.ask import REQUESTS, Answer, ModelUnavailableError, snapshot
+from services.ask import REQUESTS, Answer, ModelUnavailableError, Source, snapshot
 from services.rate_limit import ASK, ASK_ALL, ASK_ALL_CLIENTS
 
 router = APIRouter()
@@ -50,7 +52,7 @@ def unavailable(detail: str, retry_after: int) -> HTTPException:
     )
 
 
-def event(name: str, data: dict) -> str:
+def event(name: str, data: dict[str, Any]) -> str:
     # JSON keeps newlines in the answer from ending the event early.
     return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -122,7 +124,7 @@ async def ask(body: AskRequest, request: Request, db: DB):
 
 
 async def store(
-    answer: Answer, citations: list, status: str, started: float, admin: bool
+    answer: Answer, citations: list[Source], status: str, started: float, admin: bool
 ) -> None:
     """Keep the question and its answer (services/ask_log.py)."""
     await ask_log.record(

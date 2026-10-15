@@ -1,8 +1,9 @@
 import hashlib
 
-from core.config import API_PREFIX
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from core.config import API_PREFIX
 
 # Published content only: the same for every visitor, and nothing here reads
 # credentials. Everything else (admin, contact) is never cached.

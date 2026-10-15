@@ -2,15 +2,16 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, select
+
 from api.dependencies.auth import get_current_admin
 from core import config
 from db.dependency import get_db
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
-from fastapi.testclient import TestClient
 from main import get_application
 from services import ask_log
-from sqlalchemy import delete, select
 
 PREFIX = "test-ask-log: "
 ADMIN = "owner@example.com"
@@ -28,18 +29,18 @@ def factory(sync_sessions, monkeypatch, async_sessions):
 
 
 def entry(question, **change):
-    fields = dict(
-        question=PREFIX + question,
-        quote=None,
-        page=None,
-        answer="An answer.",
-        citations=[{"id": "P1", "kind": "project", "title": "PAPIT", "url": None}],
-        status="answered",
-        truncated=False,
-        output_tokens=3,
-        duration_ms=1200,
-        admin=False,
-    )
+    fields = {
+        "question": PREFIX + question,
+        "quote": None,
+        "page": None,
+        "answer": "An answer.",
+        "citations": [{"id": "P1", "kind": "project", "title": "PAPIT", "url": None}],
+        "status": "answered",
+        "truncated": False,
+        "output_tokens": 3,
+        "duration_ms": 1200,
+        "admin": False,
+    }
     return ask_log.Entry(**{**fields, **change})
 
 
