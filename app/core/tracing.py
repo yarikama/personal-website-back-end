@@ -6,6 +6,7 @@ standard variable, e.g. http://tempo.monitoring:4318).
 """
 
 import os
+from collections.abc import Sequence
 
 from fastapi import FastAPI
 from opentelemetry import trace
@@ -24,19 +25,21 @@ EXCLUDED_URLS = "health"
 
 
 def instrument(
-    app: FastAPI, provider: TracerProvider, engine: Engine | None = None
+    app: FastAPI, provider: TracerProvider, engines: Sequence[Engine] = ()
 ) -> None:
     FastAPIInstrumentor.instrument_app(
         app, tracer_provider=provider, excluded_urls=EXCLUDED_URLS
     )
-    if engine is not None:
-        SQLAlchemyInstrumentor().instrument(engine=engine, tracer_provider=provider)
+    if engines:
+        SQLAlchemyInstrumentor().instrument(
+            engines=list(engines), tracer_provider=provider
+        )
     RedisInstrumentor().instrument(tracer_provider=provider)
     HTTPXClientInstrumentor().instrument(tracer_provider=provider)
 
 
 def setup_tracing(
-    app: FastAPI, engine: Engine, exporter: SpanExporter | None = None
+    app: FastAPI, engines: Sequence[Engine], exporter: SpanExporter | None = None
 ) -> bool:
     """Instrument the app when an OTLP endpoint is configured."""
     if exporter is None:
@@ -51,5 +54,5 @@ def setup_tracing(
     # Batches spans in a background thread; requests never wait on Tempo.
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    instrument(app, provider, engine)
+    instrument(app, provider, engines)
     return True
