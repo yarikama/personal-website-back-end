@@ -37,10 +37,9 @@ DURATION = Histogram(
 
 Handler = Callable[[dict[str, str]], Awaitable[None]]
 
-# A stream entry as XREADGROUP and XAUTOCLAIM return it: its id, and its
-# fields (None when the entry was trimmed from the stream while pending).
+# A stream entry as XREADGROUP and XAUTOCLAIM return it: its id and fields.
 # redis-py types every reply as a union of all commands' shapes.
-Entry = tuple[bytes | str, dict[bytes | str, bytes | str] | None]
+Entry = tuple[bytes | str, dict[bytes | str, bytes | str]]
 
 
 def dead_letter_stream(stream: str) -> str:
@@ -102,7 +101,9 @@ class Worker:
                 raise
 
     async def _claim_stale(self) -> list[Entry]:
-        """Jobs another (or an earlier, crashed) worker left unacknowledged."""
+        """Jobs another (or an earlier, crashed) worker left unacknowledged.
+        A pending job trimmed from the stream meanwhile is not among them:
+        since Redis 7, XAUTOCLAIM drops it from the pending list itself."""
         reply = await self.redis.xautoclaim(
             self.stream,
             self.group,
@@ -163,9 +164,6 @@ class Worker:
             streams = cast(list[tuple[bytes | str, list[Entry]]], reply)
             jobs = streams[0][1] if streams else []
         for job_id, fields in jobs:
-            if fields is None:  # trimmed from the stream while pending
-                await self.redis.xack(self.stream, self.group, job_id)
-                continue
             await self._handle(job_id, fields)
         return len(jobs)
 

@@ -38,6 +38,7 @@ dev = [
     "fakeredis[lua]>=2.30",
     "httpx2>=2.13",
     "pyright>=1.1.414",
+    "pytest-cov>=6",
 ]
 
 [tool.ruff]
@@ -74,6 +75,23 @@ where = ["."]
 [tool.pytest.ini_options]
 pythonpath = ["app"]
 testpaths = ["tests"]
+
+# `make coverage`, and CI: pytest --cov.
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/alembic/*"]
+branch = true
+# SQLAlchemy's asyncio runs each query in a greenlet. Without "greenlet",
+# coverage loses track of every line after an await and reports them unrun
+# (85% instead of 91% when this was added).
+concurrency = ["thread", "greenlet"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# CI fails below this: raise it as tests are added, never lower it.
+fail_under = 95
+exclude_also = ['if __name__ == "__main__":']
 
 [tool.pyright]
 # Also what Pylance uses in the editor: a pyproject [tool.pyright] overrides

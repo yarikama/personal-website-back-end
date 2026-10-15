@@ -4,6 +4,7 @@ database tests. Every day used is in 2001, and those rows are deleted
 afterwards.
 """
 
+import asyncio
 from datetime import date
 
 import pytest
@@ -12,7 +13,8 @@ from db.dependency import get_db
 from db.models.todo import AdminTodo
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import delete
+from services import todos
+from sqlalchemy import delete, func, select
 
 MON, TUE, WED = date(2001, 1, 1), date(2001, 1, 2), date(2001, 1, 3)
 
@@ -129,6 +131,36 @@ def test_links_are_web_addresses_or_site_paths(client, href):
         json={"text": "x", "day": MON.isoformat(), "href": href},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("href", "kept"),
+    [
+        ("/notes/svd", "/notes/svd"),
+        ("  https://neetcode.io  ", "https://neetcode.io"),
+        ("http://localhost:3000/admin", "http://localhost:3000/admin"),
+        ("   ", None),
+    ],
+)
+def test_a_link_is_kept_trimmed_and_a_blank_one_dropped(client, href, kept):
+    assert add(client, "Read it", MON, href=href)["href"] == kept
+
+
+@pytest.mark.anyio
+async def test_the_first_requests_of_a_day_add_its_daily_item_once(
+    factory, async_sessions
+):
+    # Each finds no NeetCode for the day and adds one; the unique index lets
+    # one in, and the others roll back and list the one that got in.
+    async def first_look():
+        async with async_sessions() as db:
+            return [t.daily_key for t in await todos.for_day(db, WED)]
+
+    lists = await asyncio.gather(*(first_look() for _ in range(5)))
+
+    assert lists == [["neetcode"]] * 5
+    with factory() as db:
+        assert db.scalar(select(func.count()).where(AdminTodo.day == WED)) == 1
 
 
 def test_a_blank_item_is_refused(client):
