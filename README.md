@@ -240,7 +240,7 @@ tests/                      pytest suite
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL` | Cloudflare R2, for image uploads | bucket `yarikama-website-backend` |
 | `DEBUG` | Debug mode | `False` |
 | `VERCEL_TOKEN` | Vercel access token, for the site's visitors (Web Analytics) in the admin; empty turns `/admin/visitors` off (503) | empty |
-| `VERCEL_PROJECT`, `VERCEL_TEAM` | The front end's Vercel project (name or id) and its team's slug | `portfolio`, `yarikamas-projects` |
+| `VERCEL_PROJECT`, `VERCEL_TEAM` | The front end's Vercel project (name or id) and its team's slug | `prj_Q4QGU1c6k6g01UhBxVTL43ZyuzBP`, `yarikamas-projects` |
 | `REDIS_URL` | Redis for rate limits and the job queue, e.g. `redis://:password@host:6379/0`; empty turns rate limiting off | empty |
 | `SMTP_HOST`, `SMTP_PORT` | SMTP server (STARTTLS) for contact-form notifications | `smtp.gmail.com`, `587` |
 | `SMTP_USERNAME`, `SMTP_PASSWORD`, `CONTACT_NOTIFY_TO` | Sender account (for Gmail: the address and an app password) and who gets an email per contact message; if any is empty, no email is sent | empty |

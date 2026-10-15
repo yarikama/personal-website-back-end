@@ -53,7 +53,10 @@ GITHUB_USER: str = config("GITHUB_USER", default="yarikama")
 # access token, and the front end's project (name or id) and team (slug).
 # An empty token turns it off.
 VERCEL_TOKEN: Secret = Secret(config("VERCEL_TOKEN", default=""))
-VERCEL_PROJECT: str = config("VERCEL_PROJECT", default="portfolio")
+# The project id, not its name: the id survives renaming the project.
+VERCEL_PROJECT: str = config(
+    "VERCEL_PROJECT", default="prj_Q4QGU1c6k6g01UhBxVTL43ZyuzBP"
+)
 VERCEL_TEAM: str = config("VERCEL_TEAM", default="yarikamas-projects")
 
 # Pages allowed to call the API from a browser (CORS), and to send the admin
