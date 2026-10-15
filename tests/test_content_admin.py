@@ -5,31 +5,22 @@ them, against PostgreSQL like the other database tests. Every row has a
 name or slug starting with PREFIX and is deleted afterwards.
 """
 
-import os
-
 import pytest
 from api.dependencies.auth import get_current_admin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 
 PREFIX = "test-admin-"
 
 
 @pytest.fixture
-def client(async_db):
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def client(sync_sessions, db_override):
+    factory = sync_sessions
 
     def clean():
         with factory() as db:
@@ -38,14 +29,12 @@ def client(async_db):
                 (Project, Project.slug),
                 (Category, Category.name),
             ):
-                db.query(model).filter(column.startswith(PREFIX)).delete(
-                    synchronize_session=False
-                )
+                db.execute(delete(model).where(column.startswith(PREFIX)))
             db.commit()
 
     clean()
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     yield TestClient(app)
     clean()

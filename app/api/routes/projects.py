@@ -2,7 +2,7 @@ from uuid import UUID
 
 from api.dependencies import CurrentAdmin
 from core.paginator import count, offset_pagination
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.category import Category
 from db.models.projects import Project
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -50,7 +50,7 @@ async def reload(db: AsyncSession, id: UUID) -> Project | None:
 @router.get("/admin/projects")
 async def get_all_projects_admin(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     category_id: UUID | None = Query(None, description="Filter by category UUID"),
     featured: bool | None = Query(None),
     tag: str | None = Query(None),
@@ -85,7 +85,7 @@ async def get_all_projects_admin(
 async def get_project_by_id(
     id: UUID,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Get a single project by ID (including unpublished)."""
     project = await db.scalar(
@@ -100,7 +100,7 @@ async def get_project_by_id(
 async def create_project(
     project_in: ProjectCreate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Create a new project."""
     # Check if slug already exists
@@ -131,7 +131,7 @@ async def update_project(
     id: UUID,
     project_in: ProjectUpdate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Update a project."""
     db_project = await db.get(Project, id)
@@ -172,7 +172,7 @@ async def update_project(
 async def delete_project(
     id: UUID,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Delete a project."""
     project = await db.get(Project, id)
@@ -187,7 +187,7 @@ async def delete_project(
 async def reorder_projects(
     request: ProjectReorderRequest,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Reorder projects."""
     updated_count = 0
@@ -212,7 +212,7 @@ async def reorder_projects(
 
 @router.get("/projects")
 async def get_projects(
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     category_id: UUID | None = Query(None, description="Filter by category UUID"),
     featured: bool | None = Query(None),
     tag: str | None = Query(None),
@@ -246,7 +246,7 @@ async def get_projects(
 @router.get("/projects/{slug}")
 async def get_project(
     slug: str = Path(..., min_length=1, max_length=255),
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Public endpoint: Get a single published project by slug."""
     project = await db.scalar(

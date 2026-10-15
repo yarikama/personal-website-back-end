@@ -5,7 +5,7 @@ from uuid import UUID
 import httpx
 from api.dependencies import CurrentAdmin
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.autocomplete import AutocompleteSuggestion
 from fastapi import APIRouter, Depends, HTTPException, Response
 from schemas.autocomplete import (
@@ -78,7 +78,7 @@ async def feedback(
     id: UUID,
     body: SuggestionFeedback,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Record a shown suggestion and what became of it, including where the
     author stopped taking it. Only the first report counts."""

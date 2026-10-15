@@ -1,7 +1,6 @@
-import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from alembic import context
 
@@ -13,11 +12,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
-
-from db.session import Base
+from core.config import DATABASE_URL
+from db.session import Base, psycopg_url
 from db.models.projects import Project
 from db.models.log import RequestLog
 from db.models.lab_notes import LabNote
@@ -33,11 +29,14 @@ from db.models.admin_setting import AdminSetting
 
 target_metadata = Base.metadata
 
+# The app's database, through psycopg 3's sync driver. Passed straight to
+# SQLAlchemy rather than through alembic.ini, whose interpolation would take a
+# % in an escaped password for a reference.
+url = psycopg_url(DATABASE_URL)
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -51,11 +50,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(

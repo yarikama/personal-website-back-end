@@ -42,5 +42,8 @@ class Category(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
-    # Relationship
-    projects: Mapped[list["Project"]] = relationship(back_populates="category_rel")
+    # Relationship. Not loaded on access, which an async session cannot do
+    # (see Project.category_rel).
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="category_rel", lazy="raise"
+    )

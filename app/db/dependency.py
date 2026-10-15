@@ -1,22 +1,10 @@
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 
-from db.session import AsyncSessionLocal, SessionLocal
+from db.session import SessionLocal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def get_db() -> Generator:
-    """
-    Dependency that provides a database session.
-    Automatically closes the session when done.
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
-    """get_db for async routes: the session's queries are awaited."""
-    async with AsyncSessionLocal() as db:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """A database session for the request, closed after the response."""
+    async with SessionLocal() as db:
         yield db

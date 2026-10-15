@@ -4,7 +4,7 @@ from datetime import date
 from uuid import UUID
 
 from api.dependencies import CurrentAdmin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.todo import AdminTodo
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from schemas.todos import TodoCreate, TodoResponse, TodoUpdate
@@ -29,7 +29,7 @@ async def find(db: AsyncSession, id: UUID) -> AdminTodo:
 async def list_todos(
     _admin: CurrentAdmin,
     day: date = Query(..., description="The owner's today, in their local time"),
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     return {"data": [dump(row) for row in await todos.for_day(db, day)]}
 
@@ -38,7 +38,7 @@ async def list_todos(
 async def todo_history(
     _admin: CurrentAdmin,
     limit: int = Query(200, ge=1, le=500),
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Past to-dos' text, most recent first, to complete new ones from."""
     return {"data": await todos.history(db, limit)}
@@ -46,7 +46,7 @@ async def todo_history(
 
 @router.post("/admin/todos", status_code=status.HTTP_201_CREATED)
 async def add_todo(
-    body: TodoCreate, _admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)
+    body: TodoCreate, _admin: CurrentAdmin, db: AsyncSession = Depends(get_db)
 ):
     row = AdminTodo(text=body.text, href=body.href, day=body.day)
     db.add(row)
@@ -60,7 +60,7 @@ async def tick_todo(
     id: UUID,
     body: TodoUpdate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     row = await find(db, id)
     row.done_on = body.day if body.done else None
@@ -71,7 +71,7 @@ async def tick_todo(
 
 @router.delete("/admin/todos/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_todo(
-    id: UUID, _admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)
+    id: UUID, _admin: CurrentAdmin, db: AsyncSession = Depends(get_db)
 ):
     # Hidden, not deleted: a daily item would otherwise come back that day.
     (await find(db, id)).removed = True

@@ -20,7 +20,7 @@ from dataclasses import asdict
 from api.dependencies.auth import current_admin
 from api.dependencies.rate_limit import rate_limit
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -72,9 +72,7 @@ def busy() -> HTTPException:
 
 
 @router.post("/ask")
-async def ask(
-    body: AskRequest, request: Request, db: AsyncSession = Depends(get_async_db)
-):
+async def ask(body: AskRequest, request: Request, db: AsyncSession = Depends(get_db)):
     # The limits are counted here, not as route dependencies, so questions
     # refused before reaching the model do not use them up: malformed (422,
     # checked before this runs), switched off, or all slots busy. A visitor

@@ -2,11 +2,13 @@ import os
 
 import pytest
 from core import config
-from db.session import async_url
+from db.session import Base, psycopg_url
 from fakeredis import FakeAsyncRedis
 from redis.asyncio import Redis
 from services import admin_session
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 ADMIN = "owner@example.com"
@@ -55,21 +57,34 @@ def sign_in(redis, monkeypatch):
 
 
 @pytest.fixture
+def sync_sessions():
+    """
+    Sync sessions against DATABASE_URL, for a test to add its rows and clean
+    them up without an event loop. The tables are created if missing (of the
+    models imported so far).
+    """
+    engine = create_engine(psycopg_url(DATABASE_URL))
+    Base.metadata.create_all(bind=engine)
+    yield sessionmaker(bind=engine, autoflush=False)
+    engine.dispose()
+
+
+@pytest.fixture
 def async_sessions():
     """
-    Async sessions against DATABASE_URL, like db.session.AsyncSessionLocal.
+    Async sessions against DATABASE_URL, like db.session.SessionLocal.
     NullPool, as TestClient (or asyncio.run) runs in an event loop of its own
     and a pooled connection cannot be reused from another loop.
     """
-    engine = create_async_engine(async_url(DATABASE_URL), poolclass=NullPool)
+    engine = create_async_engine(psycopg_url(DATABASE_URL), poolclass=NullPool)
     return async_sessionmaker(engine, autoflush=False, expire_on_commit=False)
 
 
 @pytest.fixture
-def async_db(async_sessions):
+def db_override(async_sessions):
     """
-    An override for get_async_db:
-    app.dependency_overrides[get_async_db] = async_db.
+    The app's database session in a test:
+    app.dependency_overrides[get_db] = db_override.
     """
 
     async def override():

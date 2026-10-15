@@ -6,7 +6,6 @@ standard variable, e.g. http://tempo.monitoring:4318).
 """
 
 import os
-from collections.abc import Sequence
 
 from fastapi import FastAPI
 from opentelemetry import trace
@@ -18,28 +17,29 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
-from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 # Probes hit /health every few seconds; traces of them are only noise.
 EXCLUDED_URLS = "health"
 
 
 def instrument(
-    app: FastAPI, provider: TracerProvider, engines: Sequence[Engine] = ()
+    app: FastAPI, provider: TracerProvider, engine: AsyncEngine | None = None
 ) -> None:
     FastAPIInstrumentor.instrument_app(
         app, tracer_provider=provider, excluded_urls=EXCLUDED_URLS
     )
-    if engines:
+    if engine is not None:
+        # The instrumentation hooks the sync engine that the async one wraps.
         SQLAlchemyInstrumentor().instrument(
-            engines=list(engines), tracer_provider=provider
+            engine=engine.sync_engine, tracer_provider=provider
         )
     RedisInstrumentor().instrument(tracer_provider=provider)
     HTTPXClientInstrumentor().instrument(tracer_provider=provider)
 
 
 def setup_tracing(
-    app: FastAPI, engines: Sequence[Engine], exporter: SpanExporter | None = None
+    app: FastAPI, engine: AsyncEngine, exporter: SpanExporter | None = None
 ) -> bool:
     """Instrument the app when an OTLP endpoint is configured."""
     if exporter is None:
@@ -54,5 +54,5 @@ def setup_tracing(
     # Batches spans in a background thread; requests never wait on Tempo.
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    instrument(app, provider, engines)
+    instrument(app, provider, engine)
     return True

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from api.dependencies import CurrentAdmin
 from core.paginator import count
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.category import Category
 from db.models.projects import Project
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +28,7 @@ router = APIRouter()
 @router.get("/admin/categories")
 async def get_all_categories_admin(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Get all categories."""
     categories = await db.scalars(
@@ -41,7 +41,7 @@ async def get_all_categories_admin(
 async def create_category(
     category: CategoryCreate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Create a new category."""
     # Check if name already exists
@@ -64,7 +64,7 @@ async def update_category(
     id: UUID,
     category: CategoryUpdate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Update a category."""
     db_category = await db.get(Category, id)
@@ -98,7 +98,7 @@ async def update_category(
 async def delete_category(
     id: UUID,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Delete a category."""
     db_category = await db.get(Category, id)
@@ -125,7 +125,7 @@ async def delete_category(
 async def reorder_categories(
     request: CategoryReorderRequest,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Reorder categories."""
     updated_count = 0
@@ -153,7 +153,7 @@ async def reorder_categories(
 
 @router.get("/categories")
 async def get_categories(
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     include_counts: bool | None = Query(False, description="Include project counts"),
 ):
     """Public endpoint: Get all categories, optionally with project counts."""
@@ -193,7 +193,7 @@ async def get_categories(
 @router.get("/categories/{id}")
 async def get_category(
     id: UUID,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Public endpoint: Get a single category by ID."""
     category = await db.get(Category, id)

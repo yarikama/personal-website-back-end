@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from fastapi.testclient import TestClient
 from main import get_application
 from services import notify
@@ -124,7 +124,7 @@ class FakeSession:
 
 def test_submitting_the_form_sends_the_email_after_saving(smtp):
     app = get_application()
-    app.dependency_overrides[get_async_db] = FakeSession
+    app.dependency_overrides[get_db] = FakeSession
 
     response = TestClient(app).post(
         "/api/v1/contact",
@@ -144,7 +144,7 @@ def test_submitting_the_form_sends_the_email_after_saving(smtp):
 def test_the_form_still_works_when_gmail_fails(smtp):
     smtp.fail = True
     app = get_application()
-    app.dependency_overrides[get_async_db] = FakeSession
+    app.dependency_overrides[get_db] = FakeSession
 
     response = TestClient(app).post(
         "/api/v1/contact",

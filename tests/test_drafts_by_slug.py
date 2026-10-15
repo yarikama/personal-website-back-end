@@ -1,28 +1,20 @@
-import os
 from datetime import date
 
 import pytest
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 
 PREFIX = "test-draft-"
 
 
 @pytest.fixture
-def client(async_db):
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def client(sync_sessions, db_override):
+    factory = sync_sessions
 
     with factory() as db:
         category = Category(name=PREFIX + "cat", label="Test")
@@ -58,19 +50,13 @@ def client(async_db):
         db.commit()
 
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     yield TestClient(app)
 
     with factory() as db:
-        db.query(LabNote).filter(LabNote.slug.startswith(PREFIX)).delete(
-            synchronize_session=False
-        )
-        db.query(Project).filter(Project.slug.startswith(PREFIX)).delete(
-            synchronize_session=False
-        )
-        db.query(Category).filter(Category.name.startswith(PREFIX)).delete(
-            synchronize_session=False
-        )
+        db.execute(delete(LabNote).where(LabNote.slug.startswith(PREFIX)))
+        db.execute(delete(Project).where(Project.slug.startswith(PREFIX)))
+        db.execute(delete(Category).where(Category.name.startswith(PREFIX)))
         db.commit()
 
 

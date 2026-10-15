@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from core import config
 from db.models.ask import AskQuestion
-from db.session import AsyncSessionLocal
+from db.session import SessionLocal
 from loguru import logger
 from sqlalchemy import delete
 
@@ -37,7 +37,7 @@ async def record(entry: Entry) -> None:
     since the visitor already has the answer.
     """
     try:
-        async with AsyncSessionLocal() as db:
+        async with SessionLocal() as db:
             db.add(AskQuestion(**entry.__dict__))
             cutoff = entry.created_at - timedelta(
                 days=config.ASK_QUESTION_RETENTION_DAYS

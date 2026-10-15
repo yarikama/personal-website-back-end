@@ -9,7 +9,7 @@ from uuid import UUID
 from api.dependencies import CurrentAdmin
 from api.dependencies.rate_limit import rate_limit
 from core.paginator import count, offset_pagination
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.contact import ContactMessage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 from schemas.contact import ContactCreate, ContactResponse, ContactUpdate
@@ -29,7 +29,7 @@ router = APIRouter()
 async def create_contact(
     contact: ContactCreate,
     background: BackgroundTasks,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     db_contact = ContactMessage(**contact.model_dump())
     db.add(db_contact)
@@ -52,7 +52,7 @@ async def create_contact(
 @router.get("/admin/contact", status_code=200)
 async def get_contacts(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     read: bool | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -74,7 +74,7 @@ async def get_contacts(
 async def update_contact(
     contact_update: ContactUpdate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     id: UUID = Path(...),
 ):
     db_contact = await db.get(ContactMessage, id)
@@ -92,7 +92,7 @@ async def update_contact(
 @router.delete("/admin/contact/{id}", status_code=204)
 async def delete_contact(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     id: UUID = Path(...),
 ):
     db_contact = await db.get(ContactMessage, id)
