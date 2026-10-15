@@ -109,7 +109,7 @@ Planned, not promised; each item has a reason or a trigger.
 | Area | Choice |
 |---|---|
 | API | FastAPI, Pydantic 2, Uvicorn |
-| Data | PostgreSQL 17 (CloudNativePG), SQLAlchemy 2, Alembic |
+| Data | PostgreSQL 17 (CloudNativePG), SQLAlchemy 2 (asyncio, psycopg 3), Alembic |
 | Cache and queue | Redis (Lua scripts, Streams) |
 | Models | vLLM, OpenAI-compatible API: Qwen3.5-4B AWQ and Qwen3.5-0.8B-Base |
 | Storage | Cloudflare R2 (S3 API through aioboto3), Pillow for WebP |
@@ -231,7 +231,7 @@ tests/                      pytest suite
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string. In production it comes from CloudNativePG, not from `.env.prod` | `sqlite:///./app.db` |
+| `DATABASE_URL` | PostgreSQL connection string (`postgresql://…`; the app picks the psycopg 3 driver). In production it comes from CloudNativePG, not from `.env.prod` | `postgresql://postgres:postgres@localhost:5432/app` (docker-compose's `db`) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client (type "Web application") for Sign in with Google; empty turns it off | empty |
 | `GOOGLE_REDIRECT_URI` | The callback registered with that client | `https://api.yarikama.com/api/v1/auth/google/callback` |
 | `ADMIN_EMAILS` | Comma-separated Google accounts that may sign in | empty |

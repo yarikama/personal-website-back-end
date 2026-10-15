@@ -7,7 +7,7 @@ import asyncio
 import uuid
 
 import pytest
-from db.dependency import get_async_db
+from db.dependency import get_db
 from httpx import ASGITransport, AsyncClient
 from main import get_application
 from redis.asyncio import Redis
@@ -216,7 +216,7 @@ MESSAGE = {
 
 
 async def test_contact_form_takes_three_messages_an_hour(app, client):
-    app.dependency_overrides[get_async_db] = FakeSession
+    app.dependency_overrides[get_db] = FakeSession
 
     codes = [
         (await client.post("/api/v1/contact", json=MESSAGE)).status_code
@@ -227,7 +227,7 @@ async def test_contact_form_takes_three_messages_an_hour(app, client):
 
 
 async def test_public_requests_share_a_bucket(app, client):
-    app.dependency_overrides[get_async_db] = FakeSession
+    app.dependency_overrides[get_db] = FakeSession
     for _ in range(PUBLIC.limit):
         await client.post("/api/v1/contact", json={})  # 422, still counted
 

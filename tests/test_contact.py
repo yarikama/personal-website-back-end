@@ -4,42 +4,34 @@ PostgreSQL, like the other database tests; only messages made here are
 deleted afterwards.
 """
 
-import os
 from datetime import datetime, timedelta
 
 import pytest
 from api.dependencies.auth import get_current_admin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.contact import ContactMessage
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 
 PREFIX = "test-contact: "
 
 
 @pytest.fixture
-def factory():
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def factory(sync_sessions):
+    factory = sync_sessions
     yield factory
     with factory() as db:
-        db.query(ContactMessage).filter(
-            ContactMessage.subject.startswith(PREFIX)
-        ).delete(synchronize_session=False)
+        db.execute(
+            delete(ContactMessage).where(ContactMessage.subject.startswith(PREFIX))
+        )
         db.commit()
 
 
 @pytest.fixture
-def client(factory, async_db):
+def client(factory, db_override):
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     # Signed in (tests/test_google_login.py covers how).
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     return TestClient(app)

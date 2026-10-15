@@ -1,41 +1,32 @@
 """The current goal on the admin's welcome page (/admin/goal), against
 PostgreSQL like the other database tests. The row is restored afterwards."""
 
-import os
-
 import pytest
 from api.dependencies.auth import get_current_admin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.admin_setting import AdminSetting
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 
 
 @pytest.fixture
-def factory():
+def factory(sync_sessions):
     """Sync sessions, to set the table up and clean it."""
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    factory = sync_sessions
     with factory() as db:
-        db.query(AdminSetting).filter(AdminSetting.key == "goal").delete()
+        db.execute(delete(AdminSetting).where(AdminSetting.key == "goal"))
         db.commit()
     yield factory
     with factory() as db:
-        db.query(AdminSetting).filter(AdminSetting.key == "goal").delete()
+        db.execute(delete(AdminSetting).where(AdminSetting.key == "goal"))
         db.commit()
 
 
 @pytest.fixture
-def client(factory, async_db):
+def client(factory, db_override):
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     return TestClient(app)
 

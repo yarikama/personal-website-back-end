@@ -1,7 +1,7 @@
 """The owner's current goal, shown large on the admin's welcome page."""
 
 from api.dependencies import CurrentAdmin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.admin_setting import AdminSetting
 from fastapi import APIRouter, Depends
 from schemas.goal import GoalResponse, GoalUpdate
@@ -20,13 +20,13 @@ def dump(row: AdminSetting | None) -> dict:
 
 
 @router.get("/admin/goal")
-async def get_goal(_admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)):
+async def get_goal(_admin: CurrentAdmin, db: AsyncSession = Depends(get_db)):
     return {"data": dump(await db.get(AdminSetting, KEY))}
 
 
 @router.put("/admin/goal")
 async def set_goal(
-    body: GoalUpdate, _admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)
+    body: GoalUpdate, _admin: CurrentAdmin, db: AsyncSession = Depends(get_db)
 ):
     row = await db.get(AdminSetting, KEY)
     if row is None:

@@ -4,36 +4,30 @@ database tests. Every day used is in 2001, and those rows are deleted
 afterwards.
 """
 
-import os
 from datetime import date
 
 import pytest
 from api.dependencies.auth import get_current_admin
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.todo import AdminTodo
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 
 MON, TUE, WED = date(2001, 1, 1), date(2001, 1, 2), date(2001, 1, 3)
 
 
 @pytest.fixture
-def factory():
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def factory(sync_sessions):
+    factory = sync_sessions
 
     def clean():
         with factory() as db:
-            db.query(AdminTodo).filter(
-                AdminTodo.day.between(date(2001, 1, 1), date(2001, 12, 31))
-            ).delete(synchronize_session=False)
+            db.execute(
+                delete(AdminTodo).where(
+                    AdminTodo.day.between(date(2001, 1, 1), date(2001, 12, 31))
+                )
+            )
             db.commit()
 
     clean()
@@ -42,9 +36,9 @@ def factory():
 
 
 @pytest.fixture
-def client(factory, async_db):
+def client(factory, db_override):
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     return TestClient(app)
 

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from api.dependencies import CurrentAdmin
 from core.paginator import count, offset_pagination
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,7 +32,7 @@ async def last_seen(db: AsyncSession, admin: str) -> datetime | None:
 
 
 @router.get("/admin/ask/questions/new")
-async def new_questions(admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)):
+async def new_questions(admin: CurrentAdmin, db: AsyncSession = Depends(get_db)):
     """How many visitors asked since this admin last opened Questions."""
     since = await last_seen(db, admin)
     query = select(AskQuestion).where(AskQuestion.admin.is_(False))
@@ -46,9 +46,7 @@ async def new_questions(admin: CurrentAdmin, db: AsyncSession = Depends(get_asyn
 
 
 @router.post("/admin/ask/questions/seen")
-async def mark_questions_seen(
-    admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)
-):
+async def mark_questions_seen(admin: CurrentAdmin, db: AsyncSession = Depends(get_db)):
     """Opening Questions: what came in after the time returned is new."""
     row = await db.get(AdminSeen, (admin, PAGE))
     previous = row.seen_at if row else None
@@ -66,7 +64,7 @@ async def mark_questions_seen(
 @router.get("/admin/ask/questions")
 async def list_questions(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     who: Literal["visitors", "admin", "all"] = Query("visitors"),
     uncited: bool = Query(False, description="Only answers that cite nothing"),
     passage: bool = Query(False, description="Only questions about a passage"),
@@ -114,7 +112,7 @@ async def rate_question(
     id: UUID,
     body: AskQuestionRating,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     row = await db.get(AskQuestion, id)
     if row is None:

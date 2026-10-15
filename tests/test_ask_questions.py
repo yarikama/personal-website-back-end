@@ -1,39 +1,29 @@
 import asyncio
-import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from api.dependencies.auth import get_current_admin
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
 from services import ask_log
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete, select
 
 PREFIX = "test-ask-log: "
 ADMIN = "owner@example.com"
 
 
 @pytest.fixture
-def factory(monkeypatch, async_sessions):
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    monkeypatch.setattr(ask_log, "AsyncSessionLocal", async_sessions)
+def factory(sync_sessions, monkeypatch, async_sessions):
+    factory = sync_sessions
+    monkeypatch.setattr(ask_log, "SessionLocal", async_sessions)
     yield factory
     with factory() as db:
-        db.query(AskQuestion).filter(AskQuestion.question.startswith(PREFIX)).delete(
-            synchronize_session=False
-        )
-        db.query(AdminSeen).filter(AdminSeen.email == ADMIN).delete()
+        db.execute(delete(AskQuestion).where(AskQuestion.question.startswith(PREFIX)))
+        db.execute(delete(AdminSeen).where(AdminSeen.email == ADMIN))
         db.commit()
 
 
@@ -60,9 +50,9 @@ def record(entry):
 
 
 @pytest.fixture
-def client(factory, async_db):
+def client(factory, db_override):
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     # Signed in (tests/test_google_login.py covers how).
     app.dependency_overrides[get_current_admin] = lambda: ADMIN
     return TestClient(app)
@@ -86,7 +76,9 @@ def test_a_question_is_stored_and_old_ones_are_forgotten(factory):
     record(entry("new", created_at=now))
 
     with factory() as db:
-        rows = db.query(AskQuestion).filter(AskQuestion.question.startswith(PREFIX))
+        rows = db.scalars(
+            select(AskQuestion).where(AskQuestion.question.startswith(PREFIX))
+        )
         assert sorted(r.question.removeprefix(PREFIX) for r in rows) == ["kept", "new"]
 
 
@@ -94,7 +86,7 @@ def test_a_database_problem_does_not_raise(monkeypatch):
     def broken():
         raise RuntimeError("database down")
 
-    monkeypatch.setattr(ask_log, "AsyncSessionLocal", broken)
+    monkeypatch.setattr(ask_log, "SessionLocal", broken)
     record(entry("lost"))  # logged, not raised
 
 
@@ -156,7 +148,7 @@ def new_since_last_visit(client):
 
 def test_visitors_questions_are_counted_since_the_last_visit(client, factory):
     with factory() as db:
-        db.query(AdminSeen).filter(AdminSeen.email == ADMIN).delete()
+        db.execute(delete(AdminSeen).where(AdminSeen.email == ADMIN))
         db.commit()
     assert new_since_last_visit(client)["since"] is None
 

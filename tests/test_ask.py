@@ -2,25 +2,22 @@
 
 import asyncio
 import json
-import os
 from datetime import date
 
 import httpx
 import pytest
 from api.routes import ask as ask_route
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
-from db.session import Base
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from main import get_application
 from services import ask, ask_history, ask_log
 from services.rate_limit import ASK, RateLimiter
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete, select
 
 PREFIX = "test-ask-"
 
@@ -29,27 +26,18 @@ PREFIX = "test-ask-"
 
 
 @pytest.fixture
-def session_factory():
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def session_factory(sync_sessions):
+    factory = sync_sessions
     yield factory
     with factory() as db:
         for model in (Project, LabNote):
-            db.query(model).filter(model.slug.startswith(PREFIX)).delete(
-                synchronize_session=False
-            )
-        db.query(Category).filter(Category.name.startswith(PREFIX)).delete(
-            synchronize_session=False
-        )
+            db.execute(delete(model).where(model.slug.startswith(PREFIX)))
+        db.execute(delete(Category).where(Category.name.startswith(PREFIX)))
         db.commit()
 
 
 def add_project(db, name, published=True, **fields):
-    category = db.query(Category).filter(Category.name == PREFIX + "cat").first()
+    category = db.scalar(select(Category).where(Category.name == PREFIX + "cat"))
     if category is None:
         category = Category(name=PREFIX + "cat", label="Test")
         db.add(category)
@@ -310,7 +298,7 @@ class FakeSession:
 def app():
     FakeSession.closed = False
     application = get_application()
-    application.dependency_overrides[get_async_db] = FakeSession
+    application.dependency_overrides[get_db] = FakeSession
     return application
 
 

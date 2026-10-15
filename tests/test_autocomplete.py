@@ -1,22 +1,19 @@
 import asyncio
 import json
 import math
-import os
 from datetime import datetime, timezone
 
 import httpx
 import pytest
 from api.dependencies import get_current_admin
 from core import config
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.autocomplete import AutocompleteSuggestion
-from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
 from services import autocomplete
 from services.autocomplete import Completion, build_prompt, shape_suggestion
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete, func, select
 
 VERSION = "test-model@autocomplete-tests"
 
@@ -86,30 +83,27 @@ def test_suggestion_can_finish_the_current_word():
 
 
 @pytest.fixture
-def session_factory():
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-    )
-    engine = create_engine(database_url)
-    Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+def session_factory(sync_sessions):
+    factory = sync_sessions
     yield factory
     with factory() as db:
-        db.query(AutocompleteSuggestion).filter(
-            AutocompleteSuggestion.model_version == VERSION
-        ).delete(synchronize_session=False)
+        db.execute(
+            delete(AutocompleteSuggestion).where(
+                AutocompleteSuggestion.model_version == VERSION
+            )
+        )
         db.commit()
 
 
 @pytest.fixture
-def client(session_factory, async_db, monkeypatch):
+def client(session_factory, db_override, monkeypatch):
     monkeypatch.setattr(config, "AUTOCOMPLETE_URL", "http://model.test")
     monkeypatch.setattr(config, "AUTOCOMPLETE_MODEL_VERSION", VERSION)
     monkeypatch.setattr(config, "AUTOCOMPLETE_MIN_TOKEN_PROB", 0.5)
     autocomplete._pending.clear()
 
     app = get_application()
-    app.dependency_overrides[get_async_db] = async_db
+    app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "admin"
     return TestClient(app)
 
@@ -128,10 +122,10 @@ def fake_model(monkeypatch, tokens: list[tuple[str, float]] | None = None, error
 
 def count_rows(session_factory):
     with session_factory() as db:
-        return (
-            db.query(AutocompleteSuggestion)
-            .filter(AutocompleteSuggestion.model_version == VERSION)
-            .count()
+        return db.scalar(
+            select(func.count())
+            .select_from(AutocompleteSuggestion)
+            .where(AutocompleteSuggestion.model_version == VERSION)
         )
 
 

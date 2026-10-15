@@ -2,7 +2,7 @@ from uuid import UUID
 
 from api.dependencies import CurrentAdmin
 from core.paginator import count, offset_pagination
-from db.dependency import get_async_db
+from db.dependency import get_db
 from db.models.lab_notes import LabNote
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from schemas.lab_notes import (
@@ -24,7 +24,7 @@ router = APIRouter()
 @router.get("/admin/lab-notes")
 async def get_all_lab_notes_admin(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     tag: str | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -50,7 +50,7 @@ async def get_all_lab_notes_admin(
 async def get_lab_note_by_id(
     id: UUID,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Get a single lab note by ID (including unpublished)."""
     lab_note = await db.get(LabNote, id)
@@ -63,7 +63,7 @@ async def get_lab_note_by_id(
 async def create_lab_note(
     lab_note: LabNoteCreate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Create a new lab note."""
     # Check if slug already exists
@@ -86,7 +86,7 @@ async def update_lab_note(
     id: UUID,
     lab_note: LabNoteUpdate,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Update a lab note."""
     db_lab_note = await db.get(LabNote, id)
@@ -119,7 +119,7 @@ async def update_lab_note(
 async def delete_lab_note(
     id: UUID,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Admin endpoint: Delete a lab note."""
     db_lab_note = await db.get(LabNote, id)
@@ -138,7 +138,7 @@ async def delete_lab_note(
 
 @router.get("/lab-notes")
 async def get_lab_notes(
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     tag: str | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -162,7 +162,7 @@ async def get_lab_notes(
 
 @router.get("/lab-notes/tags")
 async def get_lab_notes_tags(
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Public endpoint: Get all tags used in published lab notes."""
     result = (
@@ -182,7 +182,7 @@ async def get_lab_notes_tags(
 
 @router.get("/lab-notes/{slug}")
 async def get_lab_note(
-    db: AsyncSession = Depends(get_async_db),
+    db: AsyncSession = Depends(get_db),
     slug: str = Path(..., min_length=1, max_length=255),
 ):
     """Public endpoint: Get a single published lab note by slug."""
