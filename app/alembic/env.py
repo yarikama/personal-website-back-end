@@ -15,7 +15,6 @@ if config.config_file_name is not None:
 from core.config import DATABASE_URL
 from db.session import Base, psycopg_url
 from db.models.projects import Project
-from db.models.log import RequestLog
 from db.models.lab_notes import LabNote
 from db.models.contact import ContactMessage
 # Every model must be imported here, or autogenerate proposes dropping its

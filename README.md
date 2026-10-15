@@ -268,12 +268,12 @@ tests/                      pytest suite
 | `POST /api/v1/auth/logout` | Ends the session (`204`) |
 | `GET /api/v1/projects`, `GET /api/v1/projects/{slug}` | Published projects, in display order |
 | `GET /api/v1/lab-notes`, `GET /api/v1/lab-notes/{slug}`, `GET /api/v1/lab-notes/tags` | Published notes, and their tags with counts |
-| `GET /api/v1/categories` | Project categories |
+| `GET /api/v1/categories` | Project categories, each with its number of published projects, after an "All" entry that counts them all |
 | `POST /api/v1/contact` | The contact form. The owner gets an email with the message; replying answers the visitor |
 | `GET /api/v1/admin/contact?read=false` | Contact messages, newest first; `read` filters. `PATCH /api/v1/admin/contact/{id}` with `{"read"}` or `{"replied"}`, `DELETE` to remove one |
 | `POST /api/v1/ask` | A question about the owner's work, answered as a server-sent event stream (below). `503` when the model is offline or busy |
 | `POST /api/v1/csp-report` | Where browsers report Content-Security-Policy violations from the site (both the `report-uri` and Reporting API formats); each becomes a log line and a `csp_reports_total` count |
-| `/api/v1/admin/...` | Create, edit, reorder and delete content, list contact messages, upload images. Needs the session cookie; anything but a GET must also come from the site's own origin |
+| `/api/v1/admin/...` | Create, edit and delete content, list contact messages, upload images. Needs the session cookie; anything but a GET must also come from the site's own origin |
 | `GET /api/v1/admin/ask/questions` | Questions asked in the chat, newest first. Filters: `who` (`visitors`, the default, `admin` or `all`), `uncited`, `passage`, `failed` (cut off or broken off), `rating` (`good`, `bad` or `none`) |
 | `PATCH /api/v1/admin/ask/questions/{id}` | `{"rating": "good" \| "bad" \| null}` |
 | `GET /api/v1/admin/github/contributions` | The owner's public GitHub contribution graph (`GITHUB_USER`), for the welcome page: `{"user", "total", "days": [{"date", "count", "level"}]}`, fetched at most once an hour |
@@ -338,7 +338,3 @@ Uploaded JPEG, PNG and WebP images get WebP variants 640 and 1600 px wide (`<nam
 | `make logs` / `make shell` / `make rebuild` | Docker logs, a shell in the container, rebuild the image |
 | `make revision` / `make upgrade` / `make downgrade` | Alembic migrations |
 | `make clean` | Remove caches |
-
-## Known limitations
-
-- The `request_logs` table is left over from a removed ML predictor. It is empty and unused; the model stays only so Alembic does not propose dropping it.
