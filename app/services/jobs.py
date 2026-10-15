@@ -53,7 +53,7 @@ async def enqueue(redis: Redis, stream: str, job: dict[str, str]) -> str:
     return job_id.decode() if isinstance(job_id, bytes) else job_id
 
 
-def decode(fields: dict) -> dict[str, str]:
+def decode(fields: dict[bytes | str, bytes | str]) -> dict[str, str]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (
             v.decode() if isinstance(v, bytes) else v
@@ -120,7 +120,9 @@ class Worker:
         )
         return int(pending[0]["times_delivered"]) if pending else 1
 
-    async def _handle(self, job_id, fields: dict) -> None:
+    async def _handle(
+        self, job_id: bytes | str, fields: dict[bytes | str, bytes | str]
+    ) -> None:
         key = job_id.decode() if isinstance(job_id, bytes) else job_id
         job = decode(fields)
         if await self._deliveries(job_id) > self.max_deliveries:
@@ -174,12 +176,13 @@ class Worker:
         while not stop.is_set():
             try:
                 await self.run_once()
-            except (RedisError, OSError) as error:
+            # The loop is the worker: it outlives Redis restarts.
+            except (RedisError, OSError) as error:  # noqa: PERF203
                 logger.warning(f"Queue {self.stream}: Redis unavailable: {error!r}")
                 await asyncio.sleep(5)
 
 
-async def queue_depth(redis: Redis, stream: str, group: str) -> dict | None:
+async def queue_depth(redis: Redis, stream: str, group: str) -> dict[str, int] | None:
     """Jobs not yet read (lag) and read but unacknowledged (pending)."""
     for info in await redis.xinfo_groups(stream):
         name = info["name"]

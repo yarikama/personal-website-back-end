@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from db.session import Base
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from db.session import Base
 
 if TYPE_CHECKING:
     from db.models.projects import Project

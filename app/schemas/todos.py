@@ -3,6 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import StringConstraints, field_validator
+
 from schemas.base import BaseSchema
 
 Text = Annotated[

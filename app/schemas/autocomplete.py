@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
+
 from schemas.base import BaseSchema
 
 

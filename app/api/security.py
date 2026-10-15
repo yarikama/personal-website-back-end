@@ -1,6 +1,7 @@
-from core.config import API_PREFIX
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from core.config import API_PREFIX
 
 # On every response. HSTS: browsers that have seen api.yarikama.com over
 # HTTPS refuse plain HTTP to it for two years (Cloudflare already redirects;

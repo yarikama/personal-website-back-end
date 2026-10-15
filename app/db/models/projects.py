@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from db.session import Base
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+
+from db.session import Base
 
 if TYPE_CHECKING:
     from db.models.category import Category

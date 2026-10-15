@@ -2,10 +2,11 @@ import logging
 import os
 import sys
 
-from core.logging import FORMAT, InterceptHandler, add_trace_id
 from loguru import logger
 from starlette.config import Config
 from starlette.datastructures import CommaSeparatedStrings, Secret
+
+from core.logging import FORMAT, InterceptHandler, add_trace_id
 
 # Local development keeps its settings in .env. In the cluster they come from
 # the environment and there is no file; Starlette warns about a missing one.

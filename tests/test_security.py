@@ -1,9 +1,10 @@
 import json
 
-from api.routes import csp
 from fastapi.testclient import TestClient
-from main import get_application
 from prometheus_client import REGISTRY
+
+from api.routes import csp
+from main import get_application
 
 client = TestClient(get_application())
 

@@ -3,8 +3,9 @@ called: its page is replaced by a snippet in the same markup."""
 
 import httpx
 import pytest
-from api.dependencies.auth import get_current_admin
 from fastapi.testclient import TestClient
+
+from api.dependencies.auth import get_current_admin
 from main import get_application
 from services import github
 

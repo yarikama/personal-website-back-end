@@ -1,9 +1,10 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from db.session import SessionLocal
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.session import SessionLocal
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

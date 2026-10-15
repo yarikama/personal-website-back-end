@@ -2,6 +2,7 @@ import math
 from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, Request, status
+
 from services.rate_limit import (
     Decision,
     LimiterUnavailableError,

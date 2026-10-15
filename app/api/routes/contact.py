@@ -4,7 +4,11 @@ messages (/admin/contact: list, mark read or replied, delete). Each new
 message is also emailed to the owner (services/notify.py).
 """
 
+from typing import Annotated
 from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
+from sqlalchemy import select
 
 from api.crud import get_or_404
 from api.dependencies import CurrentAdmin
@@ -12,11 +16,9 @@ from api.dependencies.rate_limit import rate_limit
 from core.paginator import paginate
 from db.dependency import DB
 from db.models.contact import ContactMessage
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from schemas.contact import ContactCreate, ContactResponse, ContactUpdate
 from services.notify import NewMessage, send_contact_notification
 from services.rate_limit import CONTACT
-from sqlalchemy import select
 
 router = APIRouter()
 
@@ -53,9 +55,9 @@ async def create_contact(
 async def get_contacts(
     _admin: CurrentAdmin,
     db: DB,
-    read: bool | None = Query(None),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    read: Annotated[bool | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     query = select(ContactMessage)
     if read is not None:
@@ -69,7 +71,7 @@ async def update_contact(
     contact_update: ContactUpdate,
     _admin: CurrentAdmin,
     db: DB,
-    id: UUID = Path(...),
+    id: Annotated[UUID, Path()],
 ):
     db_contact = await get_or_404(db, ContactMessage, id, "Contact message")
     for field, value in contact_update.model_dump(exclude_unset=True).items():
@@ -84,7 +86,7 @@ async def update_contact(
 async def delete_contact(
     _admin: CurrentAdmin,
     db: DB,
-    id: UUID = Path(...),
+    id: Annotated[UUID, Path()],
 ):
     await db.delete(await get_or_404(db, ContactMessage, id, "Contact message"))
     await db.commit()

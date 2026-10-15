@@ -11,9 +11,10 @@ import os
 import signal
 
 import pytest
-import worker
 from PIL import Image
 from prometheus_client import REGISTRY
+
+import worker
 from services.image_jobs import STREAM
 from services.images import WIDTHS, variant_key
 from services.jobs import Worker
@@ -32,12 +33,24 @@ def png() -> bytes:
 class FakeStorage:
     def __init__(self, objects):
         self.objects = dict(objects)
+        self.written = asyncio.Event()
 
     async def read(self, key):
         return self.objects[key]
 
     async def write(self, key, data, content_type):
         self.objects[key] = data
+        self.written.set()
+
+    async def holds(self, keys, seconds=5.0):
+        """Until every one of `keys` has been written."""
+
+        async def each_write():
+            while not all(key in self.objects for key in keys):
+                self.written.clear()
+                await self.written.wait()
+
+        await asyncio.wait_for(each_write(), seconds)
 
     async def list_keys(self):
         return list(self.objects)
@@ -78,14 +91,6 @@ def storage(monkeypatch, redis):
     return fake
 
 
-async def until(condition, seconds=5.0):
-    async def poll():
-        while not condition():
-            await asyncio.sleep(0.01)
-
-    await asyncio.wait_for(poll(), seconds)
-
-
 async def stopped_by_sigterm(task):
     # main() has installed its handler by now: it is past the queue's start.
     os.kill(os.getpid(), signal.SIGTERM)
@@ -97,7 +102,7 @@ async def test_on_start_it_backfills_what_r2_is_missing(storage):
 
     task = asyncio.create_task(worker.main())
     try:
-        await until(lambda: all(key in storage.objects for key in variants))
+        await storage.holds(variants)
     finally:
         await stopped_by_sigterm(task)
 

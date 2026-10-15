@@ -1,12 +1,13 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from core.config import METRICS_PORT, REDIS_URL
-from db.session import engine
 from fastapi import FastAPI
 from loguru import logger
 from prometheus_client import start_http_server
 from redis.asyncio import Redis
+
+from core.config import METRICS_PORT, REDIS_URL
+from db.session import engine
 from services.rate_limit import RateLimiter
 
 

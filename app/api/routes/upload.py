@@ -1,7 +1,10 @@
-from api.dependencies import CurrentAdmin
+from typing import Annotated
+
 from fastapi import APIRouter, File, Request, UploadFile
 from loguru import logger
 from redis.exceptions import RedisError
+
+from api.dependencies import CurrentAdmin
 from schemas.upload import DeleteResponse, UploadData, UploadResponse
 from services.image_jobs import enqueue_variants
 from services.storage import storage_service
@@ -13,7 +16,7 @@ router = APIRouter()
 async def upload_image(
     request: Request,
     _admin: CurrentAdmin,
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File()],
     folder: str = "images",
 ):
     """Upload an image to R2 storage. Returns the public URL."""

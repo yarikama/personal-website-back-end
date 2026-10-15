@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import httpx
+from fastapi import APIRouter, HTTPException, Response
+
 from api.dependencies import CurrentAdmin
 from core import config
 from db.dependency import DB
 from db.models.autocomplete import AutocompleteSuggestion
-from fastapi import APIRouter, HTTPException, Response
 from schemas.autocomplete import (
     CompletionRequest,
     CompletionResponse,

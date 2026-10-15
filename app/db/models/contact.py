@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from db.session import Base
 from sqlalchemy import Boolean, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
+
+from db.session import Base
 
 
 class ContactMessage(Base):

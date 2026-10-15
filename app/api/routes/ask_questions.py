@@ -3,8 +3,12 @@ ratings of the answers (services/ask_log.py stores them), and how many
 visitors asked since each admin last looked."""
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
+
+from fastapi import APIRouter, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.crud import get_or_404
 from api.dependencies import CurrentAdmin
@@ -12,15 +16,12 @@ from core.paginator import count, paginate
 from db.dependency import DB
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
-from fastapi import APIRouter, Query
 from schemas.ask_questions import (
     AskQuestionRating,
     AskQuestionResponse,
     NewQuestions,
     SeenQuestions,
 )
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -60,13 +61,19 @@ async def mark_questions_seen(admin: CurrentAdmin, db: DB):
 async def list_questions(
     _admin: CurrentAdmin,
     db: DB,
-    who: Literal["visitors", "admin", "all"] = Query("visitors"),
-    uncited: bool = Query(False, description="Only answers that cite nothing"),
-    passage: bool = Query(False, description="Only questions about a passage"),
-    failed: bool = Query(False, description="Only answers cut off or broken off"),
-    rating: Literal["good", "bad", "none"] | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    who: Annotated[Literal["visitors", "admin", "all"], Query()] = "visitors",
+    uncited: Annotated[
+        bool, Query(description="Only answers that cite nothing")
+    ] = False,
+    passage: Annotated[
+        bool, Query(description="Only questions about a passage")
+    ] = False,
+    failed: Annotated[
+        bool, Query(description="Only answers cut off or broken off")
+    ] = False,
+    rating: Annotated[Literal["good", "bad", "none"] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Newest first."""
     query = select(AskQuestion)

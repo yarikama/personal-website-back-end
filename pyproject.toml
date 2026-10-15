@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.2",
-    "ruff>=0.4.0",
+    "ruff>=0.14",
     "pre-commit>=3.5.0",
     "ipdb>=0.13.0",
     "fakeredis[lua]>=2.30",
@@ -45,6 +45,8 @@ dev = [
 line-length = 88
 target-version = "py310"
 exclude = [".venv", "__pycache__", ".git", "alembic"]
+# The app runs with PYTHONPATH=app: api, core, db, ... are first-party.
+src = ["app"]
 
 [tool.ruff.lint]
 select = [
@@ -56,9 +58,18 @@ select = [
     "UP",     # pyupgrade
     "B",      # flake8-bugbear
     "SIM",    # flake8-simplify
+    "ASYNC",  # blocking calls inside async functions
+    "FAST",   # FastAPI: Annotated dependencies, no redundant response_model
+    "DTZ",    # datetimes without a time zone
+    "C4",     # comprehensions
+    "PIE",    # unnecessary pass, placeholders, duplicate keys
+    "RET",    # return statements
+    "PERF",   # performance anti-patterns
+    "RUF",    # ruff's own
 ]
 ignore = [
-    "B008",   # Depends() in default arguments is standard FastAPI pattern
+    "RUF001", # full-width punctuation in strings: Chinese text, on purpose
+    "RUF003", # and in comments
 ]
 
 [tool.ruff.format]
@@ -103,3 +114,7 @@ venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
+# Beyond "standard": a bare dict or list says nothing of what it holds, and a
+# type: ignore that no longer silences anything hides the next real error.
+reportMissingTypeArgument = "error"
+reportUnnecessaryTypeIgnoreComment = "error"

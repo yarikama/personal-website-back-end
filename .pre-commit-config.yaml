@@ -1,7 +1,15 @@
+# The project's own ruff (uv.lock), the one CI runs: a separately pinned
+# hook drifted to a version that did not know the configured rules.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
+        name: ruff
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
       - id: ruff-format
+        name: ruff-format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]

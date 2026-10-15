@@ -30,8 +30,6 @@ class CategoryBase(BaseModel):
 class CategoryCreate(CategoryBase):
     """Schema for creating a category."""
 
-    pass
-
 
 class CategoryUpdate(BaseModel):
     """Schema for updating a category."""

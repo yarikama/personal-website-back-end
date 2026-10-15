@@ -10,9 +10,10 @@ from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
 
-from core import config
 from loguru import logger
 from prometheus_client import Counter
+
+from core import config
 
 NOTIFICATIONS = Counter(
     "contact_notifications_total",

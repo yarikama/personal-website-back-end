@@ -1,10 +1,11 @@
 import pytest
-from core import events
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.datastructures import Secret
+
+from core import events
 from main import get_application
 from services.rate_limit import RateLimiter
-from starlette.datastructures import Secret
 
 
 @pytest.fixture

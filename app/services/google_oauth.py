@@ -20,6 +20,7 @@ import json
 import secrets
 import time
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -92,7 +93,7 @@ async def start(redis: Redis, client: Client, next_path: str) -> Started:
     return Started(state=state, url=f"{AUTHORIZE_URL}?{query}")
 
 
-async def take_state(redis: Redis, state: str) -> dict:
+async def take_state(redis: Redis, state: str) -> dict[str, Any]:
     """The values start() kept for this state, removed so they work once."""
     raw = await redis.getdel(state_key(state))
     if raw is None:
@@ -100,7 +101,7 @@ async def take_state(redis: Redis, state: str) -> dict:
     return json.loads(raw)
 
 
-def check_id_token(id_token: str, client_id: str, nonce: str) -> dict:
+def check_id_token(id_token: str, client_id: str, nonce: str) -> dict[str, Any]:
     """The ID token's claims, if Google issued it to this client for this
     sign-in and it has not expired."""
     try:
@@ -123,7 +124,7 @@ def check_id_token(id_token: str, client_id: str, nonce: str) -> dict:
     return claims
 
 
-def allowed_email(claims: dict, allowed: frozenset[str]) -> str:
+def allowed_email(claims: dict[str, Any], allowed: frozenset[str]) -> str:
     """The account's email, if Google verified it and it may sign in."""
     email = str(claims.get("email", "")).strip().lower()
     if not email or claims.get("email_verified") is not True:

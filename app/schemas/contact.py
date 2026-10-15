@@ -3,6 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import EmailStr, Field, StringConstraints
+
 from schemas.base import BaseSchema
 
 # Anything but blank: no length limits, so nobody is turned away for a short

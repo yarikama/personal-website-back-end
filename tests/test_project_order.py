@@ -1,12 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
 from db.dependency import get_db
 from db.models.category import Category
 from db.models.projects import Project
-from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import delete
 
 PREFIX = "test-order-"
 
@@ -25,10 +26,14 @@ def test_public_projects_follow_order_field(session_factory, db_override):
     # Inserted in an order that matches neither `order` nor creation time, so the
     # test fails if the endpoint falls back to insertion or physical row order.
     rows = [
-        ("c", 2, datetime(2026, 1, 3)),
-        ("a", 0, datetime(2026, 1, 1)),
-        ("b", 1, datetime(2026, 1, 2)),
-        ("d", 1, datetime(2026, 1, 4)),  # ties with b on order; newer comes first
+        ("c", 2, datetime(2026, 1, 3, tzinfo=timezone.utc)),
+        ("a", 0, datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        ("b", 1, datetime(2026, 1, 2, tzinfo=timezone.utc)),
+        (
+            "d",
+            1,
+            datetime(2026, 1, 4, tzinfo=timezone.utc),
+        ),  # ties with b on order; newer comes first
     ]
     with session_factory() as db:
         category = Category(name=PREFIX + "cat", label="Test")

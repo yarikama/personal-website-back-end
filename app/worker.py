@@ -13,11 +13,12 @@ import contextlib
 import signal
 import socket
 
-from core.config import METRICS_PORT, REDIS_URL
-from core.events import connect_redis
 from loguru import logger
 from prometheus_client import Gauge, start_http_server
 from redis.exceptions import RedisError
+
+from core.config import METRICS_PORT, REDIS_URL
+from core.events import connect_redis
 from services.image_jobs import GROUP, STREAM, make_and_store_variants, reconcile
 from services.jobs import Worker, dead_letter_stream, queue_depth
 from services.storage import storage_service

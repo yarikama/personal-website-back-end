@@ -12,6 +12,7 @@ size-capped, and only a few fields, cut short, reach the log.
 """
 
 import json
+from typing import Any
 
 from fastapi import APIRouter, Request, Response
 from loguru import logger
@@ -29,7 +30,7 @@ REPORTS = Counter(
 )
 
 
-def _field(report: dict, *names: str) -> str:
+def _field(report: dict[str, Any], *names: str) -> str:
     for name in names:
         value = report.get(name)
         if value not in (None, ""):
@@ -37,7 +38,7 @@ def _field(report: dict, *names: str) -> str:
     return "?"
 
 
-def violations(body: object) -> list[dict]:
+def violations(body: object) -> list[dict[str, Any]]:
     """The violation reports in either format; anything else is ignored."""
     if isinstance(body, dict) and isinstance(body.get("csp-report"), dict):
         return [body["csp-report"]]

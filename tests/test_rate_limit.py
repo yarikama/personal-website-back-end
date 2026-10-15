@@ -7,10 +7,11 @@ import asyncio
 import uuid
 
 import pytest
-from db.dependency import get_db
 from httpx import ASGITransport, AsyncClient
-from main import get_application
 from redis.asyncio import Redis
+
+from db.dependency import get_db
+from main import get_application
 from services.rate_limit import (
     CONTACT,
     PUBLIC,

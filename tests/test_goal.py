@@ -2,12 +2,13 @@
 PostgreSQL like the other database tests. The row is restored afterwards."""
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_db
 from db.models.admin_setting import AdminSetting
-from fastapi.testclient import TestClient
 from main import get_application
-from sqlalchemy import delete
 
 
 @pytest.fixture

@@ -5,15 +5,16 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, func, select
+
 from api.dependencies import get_current_admin
 from core import config
 from db.dependency import get_db
 from db.models.autocomplete import AutocompleteSuggestion
-from fastapi.testclient import TestClient
 from main import get_application
 from services import autocomplete
 from services.autocomplete import Completion, build_prompt, shape_suggestion
-from sqlalchemy import delete, func, select
 
 VERSION = "test-model@autocomplete-tests"
 

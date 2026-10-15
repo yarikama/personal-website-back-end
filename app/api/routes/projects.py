@@ -1,4 +1,10 @@
+from typing import Annotated, Any
 from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Path, Query
+from sqlalchemy import Select, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from api.crud import ensure_unique, get_or_404
 from api.dependencies import CurrentAdmin
@@ -6,11 +12,7 @@ from core.paginator import paginate
 from db.dependency import DB
 from db.models.category import Category
 from db.models.projects import Project
-from fastapi import APIRouter, HTTPException, Path, Query
 from schemas.projects import ProjectCreate, ProjectResponse, ProjectUpdate
-from sqlalchemy import Select, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
@@ -40,13 +42,13 @@ async def reload(db: AsyncSession, id: UUID) -> Project | None:
 
 async def list_projects(
     db: AsyncSession,
-    query: Select,
+    query: Select[Any],
     category_id: UUID | None,
     featured: bool | None,
     tag: str | None,
     limit: int,
     offset: int,
-) -> dict:
+) -> dict[str, Any]:
     """A page of `query`'s projects, filtered as the works page asks."""
     if category_id:
         query = query.where(Project.category_id == category_id)
@@ -74,11 +76,13 @@ async def ensure_category(db: AsyncSession, id: UUID) -> None:
 async def get_all_projects_admin(
     _admin: CurrentAdmin,
     db: DB,
-    category_id: UUID | None = Query(None, description="Filter by category UUID"),
-    featured: bool | None = Query(None),
-    tag: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    category_id: Annotated[
+        UUID | None, Query(description="Filter by category UUID")
+    ] = None,
+    featured: Annotated[bool | None, Query()] = None,
+    tag: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Admin endpoint: Get all projects including unpublished."""
     return await list_projects(
@@ -137,11 +141,13 @@ async def delete_project(id: UUID, _admin: CurrentAdmin, db: DB):
 @router.get("/projects")
 async def get_projects(
     db: DB,
-    category_id: UUID | None = Query(None, description="Filter by category UUID"),
-    featured: bool | None = Query(None),
-    tag: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    category_id: Annotated[
+        UUID | None, Query(description="Filter by category UUID")
+    ] = None,
+    featured: Annotated[bool | None, Query()] = None,
+    tag: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Public endpoint: Get only published projects."""
     published = select(Project).where(Project.published.is_(True))
@@ -149,7 +155,7 @@ async def get_projects(
 
 
 @router.get("/projects/{slug}")
-async def get_project(db: DB, slug: str = Path(..., min_length=1, max_length=255)):
+async def get_project(db: DB, slug: Annotated[str, Path(min_length=1, max_length=255)]):
     """Public endpoint: Get a single published project by slug."""
     project = await db.scalar(
         select(Project)

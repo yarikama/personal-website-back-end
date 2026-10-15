@@ -2,20 +2,21 @@
 
 from uuid import UUID
 
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import func, select
+
 from api.crud import ensure_unique, get_or_404
 from api.dependencies import CurrentAdmin
 from core.paginator import count
 from db.dependency import DB
 from db.models.category import Category
 from db.models.projects import Project
-from fastapi import APIRouter, HTTPException
 from schemas.category import (
     CategoryCreate,
     CategoryResponse,
     CategoryUpdate,
     CategoryWithCount,
 )
-from sqlalchemy import func, select
 
 router = APIRouter()
 
@@ -124,7 +125,7 @@ async def get_categories(db: DB):
         .where(Project.published.is_(True))
         .group_by(Project.category_id)
     )
-    counts = {category_id: n for category_id, n in rows}
+    counts = dict(rows.tuples().all())
     first = categories[0]
     everything = CategoryWithCount(
         id=UUID(int=0),

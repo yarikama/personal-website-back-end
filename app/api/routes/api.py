@@ -1,3 +1,5 @@
+from fastapi import APIRouter
+
 from api.routes import (
     ask,
     ask_questions,
@@ -14,7 +16,6 @@ from api.routes import (
     upload,
     visitors,
 )
-from fastapi import APIRouter
 
 router = APIRouter()
 router.include_router(auth.router, tags=["auth"], prefix="/v1")
