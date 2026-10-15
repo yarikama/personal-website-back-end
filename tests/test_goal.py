@@ -7,23 +7,20 @@ import pytest
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_async_db
 from db.models.admin_setting import AdminSetting
-from db.session import Base, async_url
+from db.session import Base
 from fastapi.testclient import TestClient
 from main import get_application
 from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
-
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
-)
 
 
 @pytest.fixture
 def factory():
     """Sync sessions, to set the table up and clean it."""
-    engine = create_engine(DATABASE_URL)
+    database_url = os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
+    )
+    engine = create_engine(database_url)
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     with factory() as db:
@@ -36,18 +33,9 @@ def factory():
 
 
 @pytest.fixture
-def client(factory):
-    # NullPool: TestClient runs each request in an event loop of its own, and
-    # a pooled connection cannot be reused from another loop.
-    engine = create_async_engine(async_url(DATABASE_URL), poolclass=NullPool)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-
-    async def override_get_async_db():
-        async with sessions() as db:
-            yield db
-
+def client(factory, async_db):
     app = get_application()
-    app.dependency_overrides[get_async_db] = override_get_async_db
+    app.dependency_overrides[get_async_db] = async_db
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     return TestClient(app)
 

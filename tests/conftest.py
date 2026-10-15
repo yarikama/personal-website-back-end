@@ -2,11 +2,17 @@ import os
 
 import pytest
 from core import config
+from db.session import async_url
 from fakeredis import FakeAsyncRedis
 from redis.asyncio import Redis
 from services import admin_session
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 ADMIN = "owner@example.com"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
+)
 
 
 @pytest.fixture
@@ -46,3 +52,21 @@ def sign_in(redis, monkeypatch):
         }
 
     return cookie
+
+
+@pytest.fixture
+def async_db():
+    """
+    An override for get_async_db, against DATABASE_URL:
+    app.dependency_overrides[get_async_db] = async_db. NullPool, as
+    TestClient runs each request in an event loop of its own and a pooled
+    connection cannot be reused from another loop.
+    """
+    engine = create_async_engine(async_url(DATABASE_URL), poolclass=NullPool)
+    sessions = async_sessionmaker(engine, autoflush=False, expire_on_commit=False)
+
+    async def override():
+        async with sessions() as db:
+            yield db
+
+    return override
