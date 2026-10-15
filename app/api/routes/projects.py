@@ -1,8 +1,8 @@
 from uuid import UUID
 
 from api.dependencies import CurrentAdmin
-from core.paginator import offset_pagination
-from db.dependency import get_db
+from core.paginator import count, offset_pagination
+from db.dependency import get_async_db
 from db.models.category import Category
 from db.models.projects import Project
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -12,13 +12,35 @@ from schemas.projects import (
     ProjectResponse,
     ProjectUpdate,
 )
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
 # Display order: the `order` set through the admin reorder endpoint, then newest
 # first. id breaks any remaining tie so offset pagination is stable.
 PROJECT_DISPLAY_ORDER = (Project.order, Project.created_at.desc(), Project.id)
+
+# ProjectResponse reads the category, which an async session cannot load on
+# access (Project.category_rel is lazy="raise"): every query that returns
+# projects loads it with them.
+WITH_CATEGORY = joinedload(Project.category_rel)
+
+
+async def reload(db: AsyncSession, id: UUID) -> Project | None:
+    """The project as the database has it now, with its category, after a
+    commit. The query fills in what the session has expired or never loaded
+    (updated_at, set by the UPDATE; the category); populate_existing also
+    overwrites what it did load, so a category read before a change of
+    category_id cannot be returned stale."""
+    return await db.scalar(
+        select(Project)
+        .options(WITH_CATEGORY)
+        .where(Project.id == id)
+        .execution_options(populate_existing=True)
+    )
+
 
 # ============================================================================
 # Admin Routes (require authentication)
@@ -28,7 +50,7 @@ PROJECT_DISPLAY_ORDER = (Project.order, Project.created_at.desc(), Project.id)
 @router.get("/admin/projects")
 async def get_all_projects_admin(
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     category_id: UUID | None = Query(None, description="Filter by category UUID"),
     featured: bool | None = Query(None),
     tag: str | None = Query(None),
@@ -36,17 +58,22 @@ async def get_all_projects_admin(
     offset: int = Query(0, ge=0),
 ):
     """Admin endpoint: Get all projects including unpublished."""
-    query = db.query(Project).options(joinedload(Project.category_rel))
+    query = select(Project)
 
     if category_id:
-        query = query.filter(Project.category_id == category_id)
+        query = query.where(Project.category_id == category_id)
     if featured is not None:
-        query = query.filter(Project.featured == featured)
+        query = query.where(Project.featured == featured)
     if tag:
-        query = query.filter(Project.tags.contains([tag]))
+        query = query.where(Project.tags.contains([tag]))
 
-    total = query.count()
-    projects = query.order_by(*PROJECT_DISPLAY_ORDER).offset(offset).limit(limit).all()
+    total = await count(db, query)
+    projects = await db.scalars(
+        query.options(WITH_CATEGORY)
+        .order_by(*PROJECT_DISPLAY_ORDER)
+        .offset(offset)
+        .limit(limit)
+    )
 
     return {
         "data": [ProjectResponse.model_validate(p) for p in projects],
@@ -58,14 +85,11 @@ async def get_all_projects_admin(
 async def get_project_by_id(
     id: UUID,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Get a single project by ID (including unpublished)."""
-    project = (
-        db.query(Project)
-        .options(joinedload(Project.category_rel))
-        .filter(Project.id == id)
-        .first()
+    project = await db.scalar(
+        select(Project).options(WITH_CATEGORY).where(Project.id == id)
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -76,11 +100,11 @@ async def get_project_by_id(
 async def create_project(
     project_in: ProjectCreate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Create a new project."""
     # Check if slug already exists
-    is_exists = db.query(Project).filter(Project.slug == project_in.slug).first()
+    is_exists = await db.scalar(select(Project).where(Project.slug == project_in.slug))
     if is_exists:
         raise HTTPException(
             status_code=409,
@@ -88,7 +112,7 @@ async def create_project(
         )
 
     # Validate category exists
-    category = db.query(Category).filter(Category.id == project_in.category_id).first()
+    category = await db.get(Category, project_in.category_id)
     if not category:
         raise HTTPException(
             status_code=404,
@@ -97,17 +121,9 @@ async def create_project(
 
     project = Project(**project_in.model_dump())
     db.add(project)
-    db.commit()
-    db.refresh(project)
+    await db.commit()
 
-    # Reload with relationship
-    project = (
-        db.query(Project)
-        .options(joinedload(Project.category_rel))
-        .filter(Project.id == project.id)
-        .first()
-    )
-    return {"data": ProjectResponse.model_validate(project)}
+    return {"data": ProjectResponse.model_validate(await reload(db, project.id))}
 
 
 @router.put("/admin/projects/{id}")
@@ -115,10 +131,10 @@ async def update_project(
     id: UUID,
     project_in: ProjectUpdate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Update a project."""
-    db_project = db.query(Project).filter(Project.id == id).first()
+    db_project = await db.get(Project, id)
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -126,10 +142,8 @@ async def update_project(
 
     # Check if slug is being updated and if it conflicts with existing records
     if "slug" in update_data:
-        existing = (
-            db.query(Project)
-            .filter(Project.slug == update_data["slug"], Project.id != id)
-            .first()
+        existing = await db.scalar(
+            select(Project).where(Project.slug == update_data["slug"], Project.id != id)
         )
         if existing:
             raise HTTPException(
@@ -139,9 +153,7 @@ async def update_project(
 
     # Validate category if being updated
     if "category_id" in update_data:
-        category = (
-            db.query(Category).filter(Category.id == update_data["category_id"]).first()
-        )
+        category = await db.get(Category, update_data["category_id"])
         if not category:
             raise HTTPException(
                 status_code=404,
@@ -151,30 +163,23 @@ async def update_project(
     for field, value in update_data.items():
         setattr(db_project, field, value)
 
-    db.commit()
+    await db.commit()
 
-    # Reload with relationship
-    db_project = (
-        db.query(Project)
-        .options(joinedload(Project.category_rel))
-        .filter(Project.id == id)
-        .first()
-    )
-    return {"data": ProjectResponse.model_validate(db_project)}
+    return {"data": ProjectResponse.model_validate(await reload(db, id))}
 
 
 @router.delete("/admin/projects/{id}", status_code=204)
 async def delete_project(
     id: UUID,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Delete a project."""
-    project = db.query(Project).filter(Project.id == id).first()
+    project = await db.get(Project, id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    db.delete(project)
-    db.commit()
+    await db.delete(project)
+    await db.commit()
     return None
 
 
@@ -182,17 +187,19 @@ async def delete_project(
 async def reorder_projects(
     request: ProjectReorderRequest,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Reorder projects."""
     updated_count = 0
     for item in request.orders:
-        updated_count += (
-            db.query(Project)
-            .filter(Project.id == item.id)
-            .update({"order": item.order})
+        result = await db.execute(
+            update(Project)
+            .where(Project.id == item.id)
+            .values(order=item.order)
+            .returning(Project.id)
         )
-    db.commit()
+        updated_count += len(result.all())
+    await db.commit()
     return {
         "data": {"message": "Projects reordered successfully", "updated": updated_count}
     }
@@ -205,7 +212,7 @@ async def reorder_projects(
 
 @router.get("/projects")
 async def get_projects(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     category_id: UUID | None = Query(None, description="Filter by category UUID"),
     featured: bool | None = Query(None),
     tag: str | None = Query(None),
@@ -213,21 +220,22 @@ async def get_projects(
     offset: int = Query(0, ge=0),
 ):
     """Public endpoint: Get only published projects."""
-    query = (
-        db.query(Project)
-        .options(joinedload(Project.category_rel))
-        .filter(Project.published.is_(True))
-    )
+    query = select(Project).where(Project.published.is_(True))
 
     if category_id:
-        query = query.filter(Project.category_id == category_id)
+        query = query.where(Project.category_id == category_id)
     if featured is not None:
-        query = query.filter(Project.featured == featured)
+        query = query.where(Project.featured == featured)
     if tag:
-        query = query.filter(Project.tags.contains([tag]))
+        query = query.where(Project.tags.contains([tag]))
 
-    total = query.count()
-    projects = query.order_by(*PROJECT_DISPLAY_ORDER).offset(offset).limit(limit).all()
+    total = await count(db, query)
+    projects = await db.scalars(
+        query.options(WITH_CATEGORY)
+        .order_by(*PROJECT_DISPLAY_ORDER)
+        .offset(offset)
+        .limit(limit)
+    )
 
     return {
         "data": [ProjectResponse.model_validate(p) for p in projects],
@@ -238,14 +246,13 @@ async def get_projects(
 @router.get("/projects/{slug}")
 async def get_project(
     slug: str = Path(..., min_length=1, max_length=255),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Public endpoint: Get a single published project by slug."""
-    project = (
-        db.query(Project)
-        .options(joinedload(Project.category_rel))
-        .filter(Project.slug == slug, Project.published.is_(True))
-        .first()
+    project = await db.scalar(
+        select(Project)
+        .options(WITH_CATEGORY)
+        .where(Project.slug == slug, Project.published.is_(True))
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

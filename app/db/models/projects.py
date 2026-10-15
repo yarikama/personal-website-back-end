@@ -47,5 +47,9 @@ class Project(Base):
         DateTime, default=func.now(), onupdate=func.now()
     )
 
-    # Relationship
-    category_rel: Mapped["Category"] = relationship(back_populates="projects")
+    # Relationship. An async session cannot load it when it is read, so a
+    # query that needs it says so (joinedload); lazy="raise" makes one that
+    # forgot fail plainly instead of with MissingGreenlet.
+    category_rel: Mapped["Category"] = relationship(
+        back_populates="projects", lazy="raise"
+    )
