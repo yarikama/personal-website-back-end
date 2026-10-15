@@ -1,7 +1,7 @@
 """
 POST /csp-report: where browsers send Content-Security-Policy violations
 from www.yarikama.com, while its policy runs in Report-Only mode
-(portfolio-front-end vercel.json). Each report becomes one log line, which
+(personal-website-front-end vercel.json). Each report becomes one log line, which
 Loki keeps and Grafana shows, to see what the policy would block before it
 is enforced.
 

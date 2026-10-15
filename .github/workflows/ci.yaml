@@ -95,7 +95,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/portfolio-backend
+          images: ghcr.io/${{ github.repository_owner }}/website-backend
           tags: |
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
@@ -140,7 +140,7 @@ jobs:
           TAG: sha-${{ github.sha }}
         run: |
           TAG=${TAG:0:11}
-          file=apps/portfolio-backend/kustomization.yaml
+          file=apps/website-backend/kustomization.yaml
           sed -i -E "s/^(    newTag: ).*/\1${TAG}/" "$file"
           grep -q "^    newTag: ${TAG}$" "$file"
 
@@ -151,7 +151,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "deploy(portfolio-backend): ${TAG}" \
+          git commit -am "deploy(website-backend): ${TAG}" \
             -m "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
 
           # Someone may have pushed to homelab since the checkout.

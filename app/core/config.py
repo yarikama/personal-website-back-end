@@ -16,7 +16,7 @@ VERSION = "0.1.0"
 DEBUG: bool = config("DEBUG", cast=bool, default=False)
 DATABASE_URL: str = config("DATABASE_URL", default="sqlite:///./app.db")
 
-PROJECT_NAME: str = config("PROJECT_NAME", default="Portfolio-Back-End")
+PROJECT_NAME: str = config("PROJECT_NAME", default="Personal-Website-Back-End")
 
 # Sign in with Google (api/routes/auth.py): an OAuth client of type "Web
 # application" whose authorized redirect URI is GOOGLE_REDIRECT_URI. Only

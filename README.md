@@ -1,10 +1,10 @@
-# Portfolio Back-End
+# Personal Website Back-End
 
-[![CI](https://github.com/yarikama/portfolio-back-end/actions/workflows/ci.yaml/badge.svg)](https://github.com/yarikama/portfolio-back-end/actions/workflows/ci.yaml)
+[![CI](https://github.com/yarikama/personal-website-back-end/actions/workflows/ci.yaml/badge.svg)](https://github.com/yarikama/personal-website-back-end/actions/workflows/ci.yaml)
 
-The API behind [yarikama.com](https://www.yarikama.com), Henry Hsu's portfolio. It serves the projects and notes, answers visitors' questions about them with a self-hosted language model, and gives the author an editor with inline autocomplete from a second model.
+The API behind [yarikama.com](https://www.yarikama.com), Henry Hsu's personal website. It serves the projects and notes, answers visitors' questions about them with a self-hosted language model, and gives the author an editor with inline autocomplete from a second model.
 
-It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on a home server, together with its database, Redis, both models and the monitoring stack, and is reached through a Cloudflare Tunnel. The front end is [portfolio-front-end](https://github.com/yarikama/portfolio-front-end).
+It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on a home server, together with its database, Redis, both models and the monitoring stack, and is reached through a Cloudflare Tunnel. The front end is [personal-website-front-end](https://github.com/yarikama/personal-website-front-end).
 
 ## What it does
 
@@ -30,7 +30,7 @@ Built in January 2026 on Cloud Run and Neon, then moved onto a home server in la
 timeline
     title From Cloud Run to a home GPU cluster
     section January 2026
-        Jan 19–25 : Portfolio site and FastAPI API
+        Jan 19–25 : Personal website and FastAPI API
                   : Projects, notes, admin, image uploads
                   : Cloud Run and Neon
     section September 2026
@@ -168,23 +168,23 @@ make format     # fix what can be fixed
 
 **Merging to `main` is the deploy.** It takes about five minutes from merge to live.
 
-1. CI runs lint and tests, then builds the production image for `linux/amd64` and pushes it to GHCR as `ghcr.io/yarikama/portfolio-backend:sha-<short>` and `latest`.
-2. The `deploy` job commits the new tag to `apps/portfolio-backend/kustomization.yaml` in the homelab repo. It authenticates with a deploy key held in the `production` environment, which only `main` can use. Two quick merges queue rather than race.
+1. CI runs lint and tests, then builds the production image for `linux/amd64` and pushes it to GHCR as `ghcr.io/yarikama/website-backend:sha-<short>` and `latest`.
+2. The `deploy` job commits the new tag to `apps/website-backend/kustomization.yaml` in the homelab repo. It authenticates with a deploy key held in the `production` environment, which only `main` can use. Two quick merges queue rather than race.
 3. Argo CD picks up that commit within about three minutes and rolls the pods. The new pod must pass `/health` before the old one stops, so there is no downtime.
 
-**Rolling back.** `git revert` the `deploy(portfolio-backend): sha-…` commit in the homelab repo. `kubectl rollout undo` does not stick, because Argo CD restores what Git says.
+**Rolling back.** `git revert` the `deploy(website-backend): sha-…` commit in the homelab repo. `kubectl rollout undo` does not stick, because Argo CD restores what Git says.
 
 **Configuration.** Production configuration is a Sealed Secret in the homelab repo, generated from `.env.prod` by `scripts/create-secret.sh` there. `DATABASE_URL` is not part of it: it comes from the Secret that CloudNativePG generates.
 
 **Migrations** run on their own: the pod's init container runs `alembic upgrade head` before the API starts. To run Alembic by hand against production, run it inside the pod, which already has the right `DATABASE_URL`:
 
 ```bash
-kubectl -n portfolio exec deploy/portfolio-backend -c api -- alembic -c alembic.ini current
+kubectl -n website exec deploy/website-backend -c api -- alembic -c alembic.ini current
 ```
 
 **The image worker** runs from the same image with `python -m worker`.
 
-**Database backups.** WAL is archived continuously to the Cloudflare R2 bucket `yarikama-db-backups`, and a base backup is taken daily. The database can be restored to any point in the last 30 days, and the restore was tested before production moved onto it. Manifests and the restore runbook: homelab `apps/portfolio-db` and `docs/05-database.md`.
+**Database backups.** WAL is archived continuously to the Cloudflare R2 bucket `yarikama-db-backups`, and a base backup is taken daily. The database can be restored to any point in the last 30 days, and the restore was tested before production moved onto it. Manifests and the restore runbook: homelab `apps/website-db` and `docs/05-database.md`.
 
 ### Migrations locally
 
@@ -245,7 +245,7 @@ tests/                      pytest suite
 | `SMTP_HOST`, `SMTP_PORT` | SMTP server (STARTTLS) for contact-form notifications | `smtp.gmail.com`, `587` |
 | `SMTP_USERNAME`, `SMTP_PASSWORD`, `CONTACT_NOTIFY_TO` | Sender account (for Gmail: the address and an app password) and who gets an email per contact message; if any is empty, no email is sent | empty |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP endpoint for traces (e.g. Grafana Tempo, `http://tempo:4318`); empty turns tracing off | empty |
-| `OTEL_SERVICE_NAME` | Service name on the traces | `portfolio-backend` |
+| `OTEL_SERVICE_NAME` | Service name on the traces | `website-backend` |
 | `METRICS_PORT` | Serve Prometheus metrics on this port, apart from the API; `0` turns them off | `0` |
 | `AUTOCOMPLETE_URL` | OpenAI-compatible completions server for note autocomplete; empty disables it (503) | empty |
 | `AUTOCOMPLETE_MODEL`, `AUTOCOMPLETE_MODEL_VERSION` | Model name to request, and the version recorded with each suggestion | `autocomplete`, `unknown` |
