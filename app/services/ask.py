@@ -102,7 +102,7 @@ class Snapshot:
 
 
 RULES = """\
-You answer visitors' questions on yarikama.com, the portfolio website of \
+You answer visitors' questions on yarikama.com, the personal website of \
 Henry Hsu, a software engineer. Everything you know about Henry is in the \
 documents below: his projects, his notes and his resume.
 

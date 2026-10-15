@@ -48,7 +48,7 @@ def setup_tracing(
         exporter = OTLPSpanExporter()
     # OTEL_SERVICE_NAME, when set, wins over this default.
     resource = Resource.create(
-        {"service.name": os.environ.get("OTEL_SERVICE_NAME", "portfolio-backend")}
+        {"service.name": os.environ.get("OTEL_SERVICE_NAME", "website-backend")}
     )
     provider = TracerProvider(resource=resource)
     # Batches spans in a background thread; requests never wait on Tempo.

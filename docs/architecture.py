@@ -93,7 +93,7 @@ with Diagram(
     ):
         traefik = Traefik("cloudflared → Traefik\n/api/v1/ask on its own Service")
 
-        with Cluster("portfolio", graph_attr=box("namespace portfolio", "#ffffff")):
+        with Cluster("website", graph_attr=box("namespace website", "#ffffff")):
             api = FastAPI(
                 "FastAPI API\nCAG prompt · SSE answers\nrate limits · JWT admin"
             )
@@ -142,7 +142,7 @@ with Diagram(
 
     r2 = Cloudflare("Cloudflare R2\nimages · DB backups")
     with Cluster("GitHub", graph_attr=box("GitHub", "#ffffff")):
-        repo = Github("portfolio-back-end")
+        repo = Github("personal-website-back-end")
         ci = GithubActions("CI: lint · test\nimage → GHCR")
         homelab = Github("homelab (private)\nmanifests")
 

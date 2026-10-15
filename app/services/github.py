@@ -18,7 +18,7 @@ import httpx
 URL = "https://github.com/users/{user}/contributions"
 CACHE_SECONDS = 60 * 60
 # GitHub answers scripts without a browser-like User-Agent differently.
-HEADERS = {"User-Agent": "Mozilla/5.0 (portfolio admin; contribution graph)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (personal website admin; contribution graph)"}
 
 _TD = re.compile(r"<td\b([^>]*\bContributionCalendar-day\b[^>]*)>", re.S)
 _ATTR = re.compile(r'\b(data-date|data-level|id)="([^"]*)"')

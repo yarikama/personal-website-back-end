@@ -1,8 +1,8 @@
 [project]
 requires-python = ">=3.10"
-name = "portfolio-back-end"
+name = "personal-website-back-end"
 version = "0.1.0"
-description = "Yarikama's Portfolio With Blogs"
+description = "Yarikama's personal website: projects, notes and a chat about them"
 authors = [
     { name = "yarikama", email = "hsuhengjui@gmail.com" },
 ]

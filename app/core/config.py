@@ -20,7 +20,7 @@ DATABASE_URL: str = config(
     "DATABASE_URL", default="postgresql://postgres:postgres@localhost:5432/app"
 )
 
-PROJECT_NAME: str = config("PROJECT_NAME", default="Portfolio-Back-End")
+PROJECT_NAME: str = config("PROJECT_NAME", default="Personal-Website-Back-End")
 
 # Sign in with Google (api/routes/auth.py): an OAuth client of type "Web
 # application" whose authorized redirect URI is GOOGLE_REDIRECT_URI. Only
