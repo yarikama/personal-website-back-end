@@ -53,9 +53,7 @@ def missing_variants(keys: list[str]) -> list[str]:
 async def given_up(redis: Redis) -> set[str]:
     """Keys whose jobs are in the dead-letter stream."""
     entries = cast(list[Entry], await redis.xrange(dead_letter_stream(STREAM)))
-    return {
-        decode(fields).get("key", "") for _, fields in entries if fields is not None
-    }
+    return {decode(fields).get("key", "") for _, fields in entries}
 
 
 async def reconcile(storage: Storage, redis: Redis) -> int:

@@ -12,7 +12,7 @@ ENV_FILE := .env.${ENV}
 
 # Target section and Global definitions
 # -----------------------------------------------------------------------------
-.PHONY: all clean test install run deploy down lint format logs shell rebuild
+.PHONY: all clean test coverage install run deploy down lint format logs shell rebuild
 
 all: clean install test
 
@@ -21,6 +21,11 @@ install: generate_dot_env
 
 test:
 	uv run pytest -vv --show-capture=all
+
+# Settings in pyproject.toml [tool.coverage]; the report lists the lines no
+# test runs.
+coverage:
+	uv run pytest -q --cov
 
 run:
 	PYTHONPATH=app/ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080

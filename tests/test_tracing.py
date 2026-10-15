@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from core import tracing
 from core.logging import add_trace_id
 from core.tracing import instrument, setup_tracing
 from db.session import engine
@@ -11,11 +12,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from sqlalchemy import text
 
 
 @pytest.fixture
@@ -83,6 +86,26 @@ def test_tracing_is_off_without_an_endpoint(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
     assert setup_tracing(FastAPI(), engine) is False
+
+
+@pytest.mark.anyio
+async def test_queries_through_the_async_engine_are_traced(monkeypatch):
+    # The span is exported as it ends, rather than by a background batch.
+    monkeypatch.setattr(tracing, "BatchSpanProcessor", SimpleSpanProcessor)
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    exporter = InMemorySpanExporter()
+    try:
+        assert setup_tracing(FastAPI(), engine, exporter=exporter) is True
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    finally:
+        SQLAlchemyInstrumentor().uninstrument()
+        RedisInstrumentor().uninstrument()
+        HTTPXClientInstrumentor().uninstrument()
+        await engine.dispose()
+
+    [span] = [s for s in exporter.get_finished_spans() if s.name.startswith("SELECT")]
+    assert span.resource.attributes["service.name"] == "website-backend"
 
 
 def test_only_our_exporter_sends_telemetry():
