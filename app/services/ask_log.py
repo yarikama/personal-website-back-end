@@ -10,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 from core import config
 from db.models.ask import AskQuestion
-from db.session import SessionLocal
+from db.session import AsyncSessionLocal
 from loguru import logger
+from sqlalchemy import delete
 
 
 @dataclass
@@ -29,21 +30,23 @@ class Entry:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-def record(entry: Entry) -> None:
+async def record(entry: Entry) -> None:
     """
     Store a question, and forget those past the retention period. Called
     after the answer is sent; a database problem is logged, never raised,
     since the visitor already has the answer.
     """
     try:
-        with SessionLocal() as db:
+        async with AsyncSessionLocal() as db:
             db.add(AskQuestion(**entry.__dict__))
             cutoff = entry.created_at - timedelta(
                 days=config.ASK_QUESTION_RETENTION_DAYS
             )
-            db.query(AskQuestion).filter(AskQuestion.created_at < cutoff).delete(
-                synchronize_session=False
+            await db.execute(
+                delete(AskQuestion)
+                .where(AskQuestion.created_at < cutoff)
+                .execution_options(synchronize_session=False)
             )
-            db.commit()
+            await db.commit()
     except Exception as error:
         logger.warning(f"Ask: could not store the question: {error!r}")

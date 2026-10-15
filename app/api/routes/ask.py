@@ -20,7 +20,7 @@ from dataclasses import asdict
 from api.dependencies.auth import current_admin
 from api.dependencies.rate_limit import rate_limit
 from core import config
-from db.dependency import get_db
+from db.dependency import get_async_db
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -28,8 +28,7 @@ from schemas.ask import AskRequest
 from services import ask_history, ask_log
 from services.ask import REQUESTS, Answer, ModelUnavailableError, snapshot
 from services.rate_limit import ASK, ASK_ALL, ASK_ALL_CLIENTS
-from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -73,7 +72,9 @@ def busy() -> HTTPException:
 
 
 @router.post("/ask")
-async def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)):
+async def ask(
+    body: AskRequest, request: Request, db: AsyncSession = Depends(get_async_db)
+):
     # The limits are counted here, not as route dependencies, so questions
     # refused before reaching the model do not use them up: malformed (422,
     # checked before this runs), switched off, or all slots busy. A visitor
@@ -94,11 +95,11 @@ async def ask(body: AskRequest, request: Request, db: Session = Depends(get_db))
     if slots.locked():  # taken while the limits were checked
         raise busy()
 
-    snap = snapshot(db)
+    snap = await snapshot(db)
     # Done with the database. The session would otherwise keep its pooled
     # connection, idle in a transaction, until the answer finishes
     # streaming: a yield dependency is only torn down after the response.
-    db.close()
+    await db.close()
 
     # The conversation so far; an unknown or expired id starts a new one.
     redis = getattr(request.app.state, "redis", None)
@@ -127,8 +128,7 @@ async def store(
     answer: Answer, citations: list, status: str, started: float, admin: bool
 ) -> None:
     """Keep the question and its answer (services/ask_log.py)."""
-    await run_in_threadpool(
-        ask_log.record,
+    await ask_log.record(
         ask_log.Entry(
             question=answer.question,
             quote=answer.quote,

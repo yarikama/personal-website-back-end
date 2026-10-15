@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -19,14 +20,14 @@ ADMIN = "owner@example.com"
 
 
 @pytest.fixture
-def factory(monkeypatch):
+def factory(monkeypatch, async_sessions):
     database_url = os.getenv(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
     )
     engine = create_engine(database_url)
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    monkeypatch.setattr(ask_log, "SessionLocal", factory)
+    monkeypatch.setattr(ask_log, "AsyncSessionLocal", async_sessions)
     yield factory
     with factory() as db:
         db.query(AskQuestion).filter(AskQuestion.question.startswith(PREFIX)).delete(
@@ -52,6 +53,12 @@ def entry(question, **change):
     return ask_log.Entry(**{**fields, **change})
 
 
+def record(entry):
+    """ask_log.record from these sync tests, each in an event loop of its own
+    (the sessions use NullPool)."""
+    asyncio.run(ask_log.record(entry))
+
+
 @pytest.fixture
 def client(factory, async_db):
     app = get_application()
@@ -74,9 +81,9 @@ def questions(client, **params):
 def test_a_question_is_stored_and_old_ones_are_forgotten(factory):
     now = datetime.now(timezone.utc)
     days = config.ASK_QUESTION_RETENTION_DAYS
-    ask_log.record(entry("old", created_at=now - timedelta(days=days, minutes=1)))
-    ask_log.record(entry("kept", created_at=now - timedelta(days=days - 1)))
-    ask_log.record(entry("new", created_at=now))
+    record(entry("old", created_at=now - timedelta(days=days, minutes=1)))
+    record(entry("kept", created_at=now - timedelta(days=days - 1)))
+    record(entry("new", created_at=now))
 
     with factory() as db:
         rows = db.query(AskQuestion).filter(AskQuestion.question.startswith(PREFIX))
@@ -87,8 +94,8 @@ def test_a_database_problem_does_not_raise(monkeypatch):
     def broken():
         raise RuntimeError("database down")
 
-    monkeypatch.setattr(ask_log, "SessionLocal", broken)
-    ask_log.record(entry("lost"))  # logged, not raised
+    monkeypatch.setattr(ask_log, "AsyncSessionLocal", broken)
+    record(entry("lost"))  # logged, not raised
 
 
 def test_the_admin_lists_questions_newest_first_with_filters(client):
@@ -107,7 +114,7 @@ def test_the_admin_lists_questions_newest_first_with_filters(client):
         entry("broke", status="error", citations=[], created_at=now),
     ]
     for row in rows:
-        ask_log.record(row)
+        record(row)
 
     assert questions(client) == ["broke", "cut", "passage", "uncited", "visitor"]
     assert questions(client, who="admin") == ["owner"]
@@ -118,7 +125,7 @@ def test_the_admin_lists_questions_newest_first_with_filters(client):
 
 
 def test_the_admin_rates_an_answer(client):
-    ask_log.record(entry("rate me"))
+    record(entry("rate me"))
     [row] = [
         q
         for q in client.get("/api/v1/admin/ask/questions").json()["data"]
@@ -157,8 +164,8 @@ def test_visitors_questions_are_counted_since_the_last_visit(client, factory):
     assert first["previous"] is None
     assert new_since_last_visit(client)["count"] == 0
 
-    ask_log.record(entry("while away"))
-    ask_log.record(entry("mine", admin=True))  # the admin's own: not news
+    record(entry("while away"))
+    record(entry("mine", admin=True))  # the admin's own: not news
     news = new_since_last_visit(client)
     assert news["count"] == 1
     assert news["since"] is not None
@@ -170,7 +177,7 @@ def test_visitors_questions_are_counted_since_the_last_visit(client, factory):
 
 def test_each_admin_has_their_own_last_visit(client, factory):
     client.post("/api/v1/admin/ask/questions/seen")
-    ask_log.record(entry("for both"))
+    record(entry("for both"))
     client.app.dependency_overrides[get_current_admin] = lambda: "other@example.com"
     try:
         other = new_since_last_visit(client)
