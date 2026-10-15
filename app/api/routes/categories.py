@@ -7,15 +7,14 @@ from core.paginator import count
 from db.dependency import get_db
 from db.models.category import Category
 from db.models.projects import Project
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from schemas.category import (
     CategoryCreate,
-    CategoryReorderRequest,
     CategoryResponse,
     CategoryUpdate,
     CategoryWithCount,
 )
-from sqlalchemy import select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -121,82 +120,49 @@ async def delete_category(
     return None
 
 
-@router.patch("/admin/categories/reorder")
-async def reorder_categories(
-    request: CategoryReorderRequest,
-    _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    """Admin endpoint: Reorder categories."""
-    updated_count = 0
-    for item in request.orders:
-        result = await db.execute(
-            update(Category)
-            .where(Category.id == item.id)
-            .values(order=item.order)
-            .returning(Category.id)
-        )
-        updated_count += len(result.all())
-    await db.commit()
-    return {
-        "data": {
-            "message": "Categories reordered successfully",
-            "updated": updated_count,
-        }
-    }
-
-
 # ============================================================================
 # Public Routes (no authentication required)
 # ============================================================================
 
 
 @router.get("/categories")
-async def get_categories(
-    db: AsyncSession = Depends(get_db),
-    include_counts: bool | None = Query(False, description="Include project counts"),
-):
-    """Public endpoint: Get all categories, optionally with project counts."""
+async def get_categories(db: AsyncSession = Depends(get_db)):
+    """
+    Public endpoint: every category with its number of published projects,
+    after an "All" entry that counts them all (the works page's filters).
+    "All" takes its dates from the first category; with no category there is
+    nothing to filter and no "All".
+    """
     categories = list(
         await db.scalars(select(Category).order_by(Category.order, Category.label))
     )
+    if not categories:
+        return {"data": []}
 
-    if not include_counts:
-        return {"data": [CategoryResponse.model_validate(c) for c in categories]}
-
-    # Get project counts for each category (only published projects)
-    published = select(Project).where(Project.published.is_(True))
-    result = []
-    for category in categories:
-        category_dict = CategoryResponse.model_validate(category).model_dump()
-        category_dict["count"] = await count(
-            db, published.where(Project.category_id == category.id)
-        )
-        result.append(CategoryWithCount(**category_dict))
-
-    # Add "All" category
-    total = await count(db, published)
-    all_category = {
-        "id": "00000000-0000-0000-0000-000000000000",  # Special UUID for "All"
-        "name": "all",
-        "label": "All",
-        "description": "All projects",
-        "order": -1,
-        "count": total,
-        "created_at": categories[0].created_at if categories else None,
-        "updated_at": categories[0].updated_at if categories else None,
+    rows = await db.execute(
+        select(Project.category_id, func.count())
+        .where(Project.published.is_(True))
+        .group_by(Project.category_id)
+    )
+    counts = {category_id: n for category_id, n in rows}
+    first = categories[0]
+    everything = CategoryWithCount(
+        id=UUID(int=0),
+        name="all",
+        label="All",
+        description="All projects",
+        order=-1,
+        count=sum(counts.values()),
+        created_at=first.created_at,
+        updated_at=first.updated_at,
+    )
+    return {
+        "data": [everything]
+        + [
+            CategoryWithCount(
+                **CategoryResponse.model_validate(c).model_dump(),
+                count=counts.get(c.id, 0),
+            )
+            for c in categories
+        ]
     }
-
-    return {"data": [CategoryWithCount(**all_category)] + result}
-
-
-@router.get("/categories/{id}")
-async def get_category(
-    id: UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Public endpoint: Get a single category by ID."""
-    category = await db.get(Category, id)
-    if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
-    return {"data": CategoryResponse.model_validate(category)}

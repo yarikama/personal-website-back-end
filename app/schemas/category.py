@@ -56,16 +56,3 @@ class CategoryWithCount(CategoryResponse):
     """Category with project count."""
 
     count: int = Field(..., description="Number of projects in this category")
-
-
-class CategoryReorderItem(BaseModel):
-    """Schema for reordering a single category."""
-
-    id: UUID
-    order: int = Field(..., ge=0)
-
-
-class CategoryReorderRequest(BaseModel):
-    """Schema for reordering categories."""
-
-    orders: list[CategoryReorderItem] = Field(..., min_length=1)

@@ -6,20 +6,15 @@ from db.dependency import get_db
 from db.models.category import Category
 from db.models.projects import Project
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from schemas.projects import (
-    ProjectCreate,
-    ProjectReorderRequest,
-    ProjectResponse,
-    ProjectUpdate,
-)
-from sqlalchemy import select, update
+from schemas.projects import ProjectCreate, ProjectResponse, ProjectUpdate
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
-# Display order: the `order` set through the admin reorder endpoint, then newest
-# first. id breaks any remaining tie so offset pagination is stable.
+# Display order: the `order` the admin sets on each project, then newest first.
+# id breaks any remaining tie so offset pagination is stable.
 PROJECT_DISPLAY_ORDER = (Project.order, Project.created_at.desc(), Project.id)
 
 # ProjectResponse reads the category, which an async session cannot load on
@@ -79,21 +74,6 @@ async def get_all_projects_admin(
         "data": [ProjectResponse.model_validate(p) for p in projects],
         "pagination": offset_pagination(offset, limit, total),
     }
-
-
-@router.get("/admin/projects/{id}")
-async def get_project_by_id(
-    id: UUID,
-    _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    """Admin endpoint: Get a single project by ID (including unpublished)."""
-    project = await db.scalar(
-        select(Project).options(WITH_CATEGORY).where(Project.id == id)
-    )
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"data": ProjectResponse.model_validate(project)}
 
 
 @router.post("/admin/projects", status_code=201)
@@ -181,28 +161,6 @@ async def delete_project(
     await db.delete(project)
     await db.commit()
     return None
-
-
-@router.patch("/admin/projects/reorder")
-async def reorder_projects(
-    request: ProjectReorderRequest,
-    _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    """Admin endpoint: Reorder projects."""
-    updated_count = 0
-    for item in request.orders:
-        result = await db.execute(
-            update(Project)
-            .where(Project.id == item.id)
-            .values(order=item.order)
-            .returning(Project.id)
-        )
-        updated_count += len(result.all())
-    await db.commit()
-    return {
-        "data": {"message": "Projects reordered successfully", "updated": updated_count}
-    }
 
 
 # ============================================================================

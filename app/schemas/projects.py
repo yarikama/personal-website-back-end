@@ -45,27 +45,9 @@ class ProjectUpdate(BaseSchema):
 
 class ProjectResponse(ProjectBase):
     id: UUID
-    category: CategoryResponse = Field(..., description="Full category object")
+    # Read from the model's category_rel; sent as "category".
+    category: CategoryResponse = Field(
+        ..., validation_alias="category_rel", description="Full category object"
+    )
     created_at: datetime
     updated_at: datetime
-
-    @classmethod
-    def model_validate(cls, obj, **kwargs):
-        """Custom validation to handle category relationship."""
-        if hasattr(obj, "category_rel"):
-            # Create a dict with category_rel mapped to category
-            data = {
-                **{k: v for k, v in obj.__dict__.items() if not k.startswith("_")},
-                "category": obj.category_rel,
-            }
-            return super().model_validate(data, **kwargs)
-        return super().model_validate(obj, **kwargs)
-
-
-class ProjectReorderItem(BaseSchema):
-    id: UUID
-    order: int
-
-
-class ProjectReorderRequest(BaseSchema):
-    orders: list[ProjectReorderItem]

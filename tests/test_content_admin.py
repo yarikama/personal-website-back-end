@@ -160,28 +160,27 @@ def test_the_admin_sees_drafts_and_counts_them(client):
     page = client.get(
         "/api/v1/admin/projects", params={"category_id": ml["id"], "limit": 1}
     ).json()
-    one = client.get(f"/api/v1/admin/projects/{draft['id']}")
+    everything = client.get(
+        "/api/v1/admin/projects", params={"category_id": ml["id"]}
+    ).json()["data"]
 
     assert page["pagination"]["total"] == 2
     assert page["pagination"]["hasMore"] is True
-    assert one.status_code == 200
-    assert one.json()["data"]["category"]["id"] == ml["id"]
+    [listed_draft] = [p for p in everything if p["id"] == draft["id"]]
+    assert listed_draft["category"]["id"] == ml["id"]
     # The public routes do not show the draft.
     assert client.get(f"/api/v1/projects/{PREFIX}draft").status_code == 404
     assert client.get(f"/api/v1/projects/{PREFIX}live").status_code == 200
 
 
-def test_projects_are_reordered_and_deleted(client):
+def test_a_projects_order_places_it_and_it_can_be_deleted(client):
     ml = category(client, "ml")
     a, b = project(client, "a", ml["id"]), project(client, "b", ml["id"])
 
-    reordered = client.patch(
-        "/api/v1/admin/projects/reorder",
-        json={"orders": [{"id": a["id"], "order": 2}, {"id": b["id"], "order": 1}]},
-    )
+    for item, order in ((a, 2), (b, 1)):
+        client.put(f"/api/v1/admin/projects/{item['id']}", json={"order": order})
     listed = client.get("/api/v1/projects", params={"category_id": ml["id"]})
 
-    assert reordered.json()["data"]["updated"] == 2
     assert [p["slug"] for p in listed.json()["data"]] == [PREFIX + "b", PREFIX + "a"]
     assert client.delete(f"/api/v1/admin/projects/{a['id']}").status_code == 204
     assert client.delete(f"/api/v1/admin/projects/{a['id']}").status_code == 404
@@ -226,35 +225,47 @@ def test_a_category_with_projects_is_not_deleted(client):
     assert refused.status_code == 409
     assert "1 project(s)" in refused.json()["detail"]
     assert client.delete(f"/api/v1/admin/categories/{empty['id']}").status_code == 204
-    assert client.get(f"/api/v1/categories/{empty['id']}").status_code == 404
+    public = client.get("/api/v1/categories").json()["data"]
+    assert PREFIX + "empty" not in [c["name"] for c in public]
 
 
 def test_public_categories_count_published_projects(client):
-    ml = category(client, "ml")
+    ml, web = category(client, "ml"), category(client, "web")
     project(client, "live", ml["id"])
-    project(client, "draft", ml["id"], published=False)
+    project(client, "live-too", ml["id"])
+    project(client, "draft", web["id"], published=False)
 
-    plain = client.get("/api/v1/categories").json()["data"]
-    counted = client.get("/api/v1/categories", params={"include_counts": True})
+    data = client.get("/api/v1/categories").json()["data"]
 
-    assert PREFIX + "ml" in [c["name"] for c in plain]
-    data = counted.json()["data"]
-    assert data[0]["name"] == "all"
-    assert {c["name"]: c["count"] for c in data}[PREFIX + "ml"] == 1
-
-
-def test_categories_are_reordered(client):
-    a, b = category(client, "a"), category(client, "b")
-
-    response = client.patch(
-        "/api/v1/admin/categories/reorder",
-        json={"orders": [{"id": a["id"], "order": 9}, {"id": b["id"], "order": 8}]},
+    everything, counts = data[0], {c["name"]: c["count"] for c in data[1:]}
+    assert (everything["name"], everything["id"]) == (
+        "all",
+        "00000000-0000-0000-0000-000000000000",
     )
+    assert (counts[PREFIX + "ml"], counts[PREFIX + "web"]) == (2, 0)
+    # Every published project, these and the other tests' alike.
+    assert everything["count"] == sum(counts.values())
+
+
+def test_with_no_category_there_is_no_all_either(client):
+    class NoCategories:
+        async def scalars(self, query):
+            return iter([])
+
+    client.app.dependency_overrides[get_db] = NoCategories
+
+    assert client.get("/api/v1/categories").json() == {"data": []}
+
+
+def test_categories_are_listed_by_their_order(client):
+    category(client, "a", order=9)
+    b = category(client, "b", order=8)
+
+    client.put(f"/api/v1/admin/categories/{b['id']}", json={"order": 10})
     listed = client.get("/api/v1/admin/categories").json()["data"]
 
-    assert response.json()["data"]["updated"] == 2
     mine = [c["name"] for c in listed if c["name"].startswith(PREFIX)]
-    assert mine == [PREFIX + "b", PREFIX + "a"]
+    assert mine == [PREFIX + "a", PREFIX + "b"]
 
 
 # Lab notes
