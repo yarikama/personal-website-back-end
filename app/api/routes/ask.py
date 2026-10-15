@@ -20,15 +20,14 @@ from dataclasses import asdict
 from api.dependencies.auth import current_admin
 from api.dependencies.rate_limit import rate_limit
 from core import config
-from db.dependency import get_db
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from db.dependency import DB
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from schemas.ask import AskRequest
 from services import ask_history, ask_log
 from services.ask import REQUESTS, Answer, ModelUnavailableError, snapshot
 from services.rate_limit import ASK, ASK_ALL, ASK_ALL_CLIENTS
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -72,7 +71,7 @@ def busy() -> HTTPException:
 
 
 @router.post("/ask")
-async def ask(body: AskRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def ask(body: AskRequest, request: Request, db: DB):
     # The limits are counted here, not as route dependencies, so questions
     # refused before reaching the model do not use them up: malformed (422,
     # checked before this runs), switched off, or all slots busy. A visitor
