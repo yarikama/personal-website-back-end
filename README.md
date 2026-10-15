@@ -237,7 +237,7 @@ tests/                      pytest suite
 | `ADMIN_EMAILS` | Comma-separated Google accounts that may sign in | empty |
 | `SITE_URL` | Where the browser goes after signing in | `https://yarikama.com` |
 | `ADMIN_SESSION_HOURS` | How long a Google sign-in lasts | `12` |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL` | Cloudflare R2, for image uploads | bucket `yarikama-portfolio-backend` |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL` | Cloudflare R2, for image uploads | bucket `yarikama-website-backend` |
 | `DEBUG` | Debug mode | `False` |
 | `VERCEL_TOKEN` | Vercel access token, for the site's visitors (Web Analytics) in the admin; empty turns `/admin/visitors` off (503) | empty |
 | `VERCEL_PROJECT`, `VERCEL_TEAM` | The front end's Vercel project (name or id) and its team's slug | `portfolio`, `yarikamas-projects` |
