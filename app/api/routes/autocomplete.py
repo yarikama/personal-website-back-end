@@ -5,16 +5,15 @@ from uuid import UUID
 import httpx
 from api.dependencies import CurrentAdmin
 from core import config
-from db.dependency import get_db
+from db.dependency import DB
 from db.models.autocomplete import AutocompleteSuggestion
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from schemas.autocomplete import (
     CompletionRequest,
     CompletionResponse,
     SuggestionFeedback,
 )
 from services import autocomplete
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +30,7 @@ async def complete(request: CompletionRequest, _admin: CurrentAdmin):
     if not config.AUTOCOMPLETE_URL:
         raise HTTPException(status_code=503, detail="Autocomplete is not configured")
 
-    empty = {
-        "data": CompletionResponse(id=None, suggestion="").model_dump(by_alias=True)
-    }
+    empty = {"data": CompletionResponse(id=None, suggestion="")}
     prompt = autocomplete.build_prompt(request.prefix, request.title)
     if not request.prefix.strip():
         return empty
@@ -66,11 +63,7 @@ async def complete(request: CompletionRequest, _admin: CurrentAdmin):
             model_version=config.AUTOCOMPLETE_MODEL_VERSION,
         )
     )
-    return {
-        "data": CompletionResponse(id=id, suggestion=suggestion).model_dump(
-            by_alias=True, mode="json"
-        )
-    }
+    return {"data": CompletionResponse(id=id, suggestion=suggestion)}
 
 
 @router.post("/admin/complete/{id}/feedback", status_code=204)
@@ -78,7 +71,7 @@ async def feedback(
     id: UUID,
     body: SuggestionFeedback,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
+    db: DB,
 ):
     """Record a shown suggestion and what became of it, including where the
     author stopped taking it. Only the first report counts."""

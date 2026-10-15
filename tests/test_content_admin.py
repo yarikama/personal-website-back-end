@@ -111,6 +111,7 @@ def test_a_project_slug_is_taken_once(client):
     )
 
     assert again.status_code == 409
+    assert again.json()["detail"] == f"Project with slug '{PREFIX}papit' already exists"
 
 
 def test_a_project_needs_a_category_that_exists(client):
@@ -202,6 +203,18 @@ def test_a_category_name_is_taken_once(client):
 
     assert twice.status_code == 409
     assert renamed.status_code == 409
+
+
+def test_a_category_may_keep_its_own_name(client):
+    ml = category(client, "ml")
+
+    response = client.put(
+        f"/api/v1/admin/categories/{ml['id']}",
+        json={"name": PREFIX + "ml", "label": "Machine learning"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["label"] == "Machine learning"
 
 
 def test_a_category_is_updated(client):

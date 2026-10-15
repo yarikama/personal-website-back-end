@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
+from api.crud import get_or_404
 from api.dependencies import CurrentAdmin
-from core.paginator import count, offset_pagination
-from db.dependency import get_db
+from core.paginator import count, paginate
+from db.dependency import DB
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Query
 from schemas.ask_questions import (
     AskQuestionRating,
     AskQuestionResponse,
@@ -32,21 +33,17 @@ async def last_seen(db: AsyncSession, admin: str) -> datetime | None:
 
 
 @router.get("/admin/ask/questions/new")
-async def new_questions(admin: CurrentAdmin, db: AsyncSession = Depends(get_db)):
+async def new_questions(admin: CurrentAdmin, db: DB):
     """How many visitors asked since this admin last opened Questions."""
     since = await last_seen(db, admin)
     query = select(AskQuestion).where(AskQuestion.admin.is_(False))
     if since is not None:
         query = query.where(AskQuestion.created_at > since)
-    return {
-        "data": NewQuestions(count=await count(db, query), since=since).model_dump(
-            by_alias=True, mode="json"
-        )
-    }
+    return {"data": NewQuestions(count=await count(db, query), since=since)}
 
 
 @router.post("/admin/ask/questions/seen")
-async def mark_questions_seen(admin: CurrentAdmin, db: AsyncSession = Depends(get_db)):
+async def mark_questions_seen(admin: CurrentAdmin, db: DB):
     """Opening Questions: what came in after the time returned is new."""
     row = await db.get(AdminSeen, (admin, PAGE))
     previous = row.seen_at if row else None
@@ -56,15 +53,13 @@ async def mark_questions_seen(admin: CurrentAdmin, db: AsyncSession = Depends(ge
     else:
         row.seen_at = now
     await db.commit()
-    return {
-        "data": SeenQuestions(previous=previous).model_dump(by_alias=True, mode="json")
-    }
+    return {"data": SeenQuestions(previous=previous)}
 
 
 @router.get("/admin/ask/questions")
 async def list_questions(
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
+    db: DB,
     who: Literal["visitors", "admin", "all"] = Query("visitors"),
     uncited: bool = Query(False, description="Only answers that cite nothing"),
     passage: bool = Query(False, description="Only questions about a passage"),
@@ -90,21 +85,8 @@ async def list_questions(
     elif rating:
         query = query.where(AskQuestion.rating == rating)
 
-    total = await count(db, query)
-    rows = await db.scalars(
-        query.order_by(AskQuestion.created_at.desc(), AskQuestion.id)
-        .offset(offset)
-        .limit(limit)
-    )
-    return {
-        "data": [
-            AskQuestionResponse.model_validate(row).model_dump(
-                by_alias=True, mode="json"
-            )
-            for row in rows
-        ],
-        "pagination": offset_pagination(offset, limit, total),
-    }
+    query = query.order_by(AskQuestion.created_at.desc(), AskQuestion.id)
+    return await paginate(db, query, AskQuestionResponse, offset, limit)
 
 
 @router.patch("/admin/ask/questions/{id}")
@@ -112,16 +94,10 @@ async def rate_question(
     id: UUID,
     body: AskQuestionRating,
     _admin: CurrentAdmin,
-    db: AsyncSession = Depends(get_db),
+    db: DB,
 ):
-    row = await db.get(AskQuestion, id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Question not found")
+    row = await get_or_404(db, AskQuestion, id, "Question")
     row.rating = body.rating
     await db.commit()
     await db.refresh(row)
-    return {
-        "data": AskQuestionResponse.model_validate(row).model_dump(
-            by_alias=True, mode="json"
-        )
-    }
+    return {"data": AskQuestionResponse.model_validate(row)}
