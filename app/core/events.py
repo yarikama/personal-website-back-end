@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from core.config import METRICS_PORT, REDIS_URL
+from db.session import async_engine
 from fastapi import FastAPI
 from loguru import logger
 from prometheus_client import start_http_server
@@ -37,3 +38,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         if redis is not None:
             await redis.aclose()
+        # Its pooled connections belong to this event loop; close them here
+        # rather than leave them to be dropped when the loop is gone.
+        await async_engine.dispose()

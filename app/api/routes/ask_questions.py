@@ -7,8 +7,8 @@ from typing import Literal
 from uuid import UUID
 
 from api.dependencies import CurrentAdmin
-from core.paginator import offset_pagination
-from db.dependency import get_db
+from core.paginator import count, offset_pagination
+from db.dependency import get_async_db
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,44 +18,46 @@ from schemas.ask_questions import (
     NewQuestions,
     SeenQuestions,
 )
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 PAGE = "questions"
 
 
-def last_seen(db: Session, admin: str) -> datetime | None:
-    row = db.get(AdminSeen, (admin, PAGE))
+async def last_seen(db: AsyncSession, admin: str) -> datetime | None:
+    row = await db.get(AdminSeen, (admin, PAGE))
     return row.seen_at if row else None
 
 
 @router.get("/admin/ask/questions/new")
-async def new_questions(admin: CurrentAdmin, db: Session = Depends(get_db)):
+async def new_questions(admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)):
     """How many visitors asked since this admin last opened Questions."""
-    since = last_seen(db, admin)
-    query = db.query(AskQuestion).filter(AskQuestion.admin.is_(False))
+    since = await last_seen(db, admin)
+    query = select(AskQuestion).where(AskQuestion.admin.is_(False))
     if since is not None:
-        query = query.filter(AskQuestion.created_at > since)
+        query = query.where(AskQuestion.created_at > since)
     return {
-        "data": NewQuestions(count=query.count(), since=since).model_dump(
+        "data": NewQuestions(count=await count(db, query), since=since).model_dump(
             by_alias=True, mode="json"
         )
     }
 
 
 @router.post("/admin/ask/questions/seen")
-async def mark_questions_seen(admin: CurrentAdmin, db: Session = Depends(get_db)):
+async def mark_questions_seen(
+    admin: CurrentAdmin, db: AsyncSession = Depends(get_async_db)
+):
     """Opening Questions: what came in after the time returned is new."""
-    row = db.get(AdminSeen, (admin, PAGE))
+    row = await db.get(AdminSeen, (admin, PAGE))
     previous = row.seen_at if row else None
     now = datetime.now(timezone.utc)
     if row is None:
         db.add(AdminSeen(email=admin, page=PAGE, seen_at=now))
     else:
         row.seen_at = now
-    db.commit()
+    await db.commit()
     return {
         "data": SeenQuestions(previous=previous).model_dump(by_alias=True, mode="json")
     }
@@ -64,7 +66,7 @@ async def mark_questions_seen(admin: CurrentAdmin, db: Session = Depends(get_db)
 @router.get("/admin/ask/questions")
 async def list_questions(
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     who: Literal["visitors", "admin", "all"] = Query("visitors"),
     uncited: bool = Query(False, description="Only answers that cite nothing"),
     passage: bool = Query(False, description="Only questions about a passage"),
@@ -74,28 +76,27 @@ async def list_questions(
     offset: int = Query(0, ge=0),
 ):
     """Newest first."""
-    query = db.query(AskQuestion)
+    query = select(AskQuestion)
     if who != "all":
-        query = query.filter(AskQuestion.admin.is_(who == "admin"))
+        query = query.where(AskQuestion.admin.is_(who == "admin"))
     if uncited:
-        query = query.filter(func.jsonb_array_length(AskQuestion.citations) == 0)
+        query = query.where(func.jsonb_array_length(AskQuestion.citations) == 0)
     if passage:
-        query = query.filter(AskQuestion.quote.isnot(None))
+        query = query.where(AskQuestion.quote.isnot(None))
     if failed:
-        query = query.filter(
+        query = query.where(
             (AskQuestion.status != "answered") | AskQuestion.truncated.is_(True)
         )
     if rating == "none":
-        query = query.filter(AskQuestion.rating.is_(None))
+        query = query.where(AskQuestion.rating.is_(None))
     elif rating:
-        query = query.filter(AskQuestion.rating == rating)
+        query = query.where(AskQuestion.rating == rating)
 
-    total = query.count()
-    rows = (
+    total = await count(db, query)
+    rows = await db.scalars(
         query.order_by(AskQuestion.created_at.desc(), AskQuestion.id)
         .offset(offset)
         .limit(limit)
-        .all()
     )
     return {
         "data": [
@@ -113,14 +114,14 @@ async def rate_question(
     id: UUID,
     body: AskQuestionRating,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
-    row = db.get(AskQuestion, id)
+    row = await db.get(AskQuestion, id)
     if row is None:
         raise HTTPException(status_code=404, detail="Question not found")
     row.rating = body.rating
-    db.commit()
-    db.refresh(row)
+    await db.commit()
+    await db.refresh(row)
     return {
         "data": AskQuestionResponse.model_validate(row).model_dump(
             by_alias=True, mode="json"

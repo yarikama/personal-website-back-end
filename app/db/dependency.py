@@ -1,6 +1,7 @@
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 
-from db.session import SessionLocal
+from db.session import AsyncSessionLocal, SessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def get_db() -> Generator:
@@ -13,3 +14,9 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
+
+
+async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
+    """get_db for async routes: the session's queries are awaited."""
+    async with AsyncSessionLocal() as db:
+        yield db

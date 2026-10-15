@@ -14,7 +14,11 @@ config = Config(".env" if os.path.isfile(".env") else None)
 API_PREFIX = "/api"
 VERSION = "0.1.0"
 DEBUG: bool = config("DEBUG", cast=bool, default=False)
-DATABASE_URL: str = config("DATABASE_URL", default="sqlite:///./app.db")
+# The default is docker-compose's db. The models use PostgreSQL types (ARRAY,
+# JSONB), so no other database would work.
+DATABASE_URL: str = config(
+    "DATABASE_URL", default="postgresql://postgres:postgres@localhost:5432/app"
+)
 
 PROJECT_NAME: str = config("PROJECT_NAME", default="Personal-Website-Back-End")
 

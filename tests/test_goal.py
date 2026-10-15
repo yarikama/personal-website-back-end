@@ -5,7 +5,7 @@ import os
 
 import pytest
 from api.dependencies.auth import get_current_admin
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.admin_setting import AdminSetting
 from db.session import Base
 from fastapi.testclient import TestClient
@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 @pytest.fixture
 def factory():
+    """Sync sessions, to set the table up and clean it."""
     database_url = os.getenv(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
     )
@@ -32,16 +33,9 @@ def factory():
 
 
 @pytest.fixture
-def client(factory):
-    def override_get_db():
-        db = factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
+def client(factory, async_db):
     app = get_application()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = async_db
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
     return TestClient(app)
 

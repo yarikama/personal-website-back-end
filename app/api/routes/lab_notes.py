@@ -1,8 +1,8 @@
 from uuid import UUID
 
 from api.dependencies import CurrentAdmin
-from core.paginator import offset_pagination
-from db.dependency import get_db
+from core.paginator import count, offset_pagination
+from db.dependency import get_async_db
 from db.models.lab_notes import LabNote
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from schemas.lab_notes import (
@@ -11,8 +11,8 @@ from schemas.lab_notes import (
     LabNoteResponse,
     LabNoteUpdate,
 )
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -24,19 +24,21 @@ router = APIRouter()
 @router.get("/admin/lab-notes")
 async def get_all_lab_notes_admin(
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     tag: str | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """Admin endpoint: Get all lab notes including unpublished."""
-    query = db.query(LabNote)
+    query = select(LabNote)
 
     if tag:
-        query = query.filter(LabNote.tags.contains([tag]))
+        query = query.where(LabNote.tags.contains([tag]))
 
-    total = query.count()
-    lab_notes = query.order_by(LabNote.date.desc()).offset(offset).limit(limit).all()
+    total = await count(db, query)
+    lab_notes = await db.scalars(
+        query.order_by(LabNote.date.desc()).offset(offset).limit(limit)
+    )
 
     return {
         "data": [LabNoteListResponse.model_validate(ln) for ln in lab_notes],
@@ -48,10 +50,10 @@ async def get_all_lab_notes_admin(
 async def get_lab_note_by_id(
     id: UUID,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Get a single lab note by ID (including unpublished)."""
-    lab_note = db.query(LabNote).filter(LabNote.id == id).first()
+    lab_note = await db.get(LabNote, id)
     if not lab_note:
         raise HTTPException(status_code=404, detail="Lab note not found")
     return {"data": LabNoteResponse.model_validate(lab_note)}
@@ -61,11 +63,11 @@ async def get_lab_note_by_id(
 async def create_lab_note(
     lab_note: LabNoteCreate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Create a new lab note."""
     # Check if slug already exists
-    existing = db.query(LabNote).filter(LabNote.slug == lab_note.slug).first()
+    existing = await db.scalar(select(LabNote).where(LabNote.slug == lab_note.slug))
     if existing:
         raise HTTPException(
             status_code=409,
@@ -74,8 +76,8 @@ async def create_lab_note(
 
     db_lab_note = LabNote(**lab_note.model_dump())
     db.add(db_lab_note)
-    db.commit()
-    db.refresh(db_lab_note)
+    await db.commit()
+    await db.refresh(db_lab_note)
     return {"data": LabNoteResponse.model_validate(db_lab_note)}
 
 
@@ -84,10 +86,10 @@ async def update_lab_note(
     id: UUID,
     lab_note: LabNoteUpdate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Update a lab note."""
-    db_lab_note = db.query(LabNote).filter(LabNote.id == id).first()
+    db_lab_note = await db.get(LabNote, id)
     if not db_lab_note:
         raise HTTPException(status_code=404, detail="Lab note not found")
 
@@ -95,10 +97,8 @@ async def update_lab_note(
 
     # Check if slug is being updated and if it conflicts with existing records
     if "slug" in update_data:
-        existing = (
-            db.query(LabNote)
-            .filter(LabNote.slug == update_data["slug"], LabNote.id != id)
-            .first()
+        existing = await db.scalar(
+            select(LabNote).where(LabNote.slug == update_data["slug"], LabNote.id != id)
         )
         if existing:
             raise HTTPException(
@@ -109,8 +109,9 @@ async def update_lab_note(
     for field, value in update_data.items():
         setattr(db_lab_note, field, value)
 
-    db.commit()
-    db.refresh(db_lab_note)
+    await db.commit()
+    # Also reads updated_at back, which the database set (onupdate=now()).
+    await db.refresh(db_lab_note)
     return {"data": LabNoteResponse.model_validate(db_lab_note)}
 
 
@@ -118,15 +119,15 @@ async def update_lab_note(
 async def delete_lab_note(
     id: UUID,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Delete a lab note."""
-    db_lab_note = db.query(LabNote).filter(LabNote.id == id).first()
+    db_lab_note = await db.get(LabNote, id)
     if not db_lab_note:
         raise HTTPException(status_code=404, detail="Lab note not found")
 
-    db.delete(db_lab_note)
-    db.commit()
+    await db.delete(db_lab_note)
+    await db.commit()
     return None
 
 
@@ -137,19 +138,21 @@ async def delete_lab_note(
 
 @router.get("/lab-notes")
 async def get_lab_notes(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     tag: str | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """Public endpoint: Get only published lab notes."""
-    query = db.query(LabNote).filter(LabNote.published.is_(True))
+    query = select(LabNote).where(LabNote.published.is_(True))
 
     if tag:
-        query = query.filter(LabNote.tags.contains([tag]))
+        query = query.where(LabNote.tags.contains([tag]))
 
-    total = query.count()
-    lab_notes = query.order_by(LabNote.date.desc()).offset(offset).limit(limit).all()
+    total = await count(db, query)
+    lab_notes = await db.scalars(
+        query.order_by(LabNote.date.desc()).offset(offset).limit(limit)
+    )
 
     return {
         "data": [LabNoteListResponse.model_validate(ln) for ln in lab_notes],
@@ -159,37 +162,32 @@ async def get_lab_notes(
 
 @router.get("/lab-notes/tags")
 async def get_lab_notes_tags(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Public endpoint: Get all tags used in published lab notes."""
     result = (
-        db.query(
-            func.unnest(LabNote.tags).label("tag"),
-        )
-        .filter(LabNote.published.is_(True))
+        select(func.unnest(LabNote.tags).label("tag"))
+        .where(LabNote.published.is_(True))
         .subquery()
     )
 
-    tags = (
-        db.query(result.c.tag, func.count(result.c.tag).label("count"))
+    tags = await db.execute(
+        select(result.c.tag, func.count(result.c.tag).label("count"))
         .group_by(result.c.tag)
         .order_by(func.count(result.c.tag).desc())
-        .all()
     )
 
-    return {"data": [{"tag": tag, "count": count} for tag, count in tags]}
+    return {"data": [{"tag": tag, "count": n} for tag, n in tags]}
 
 
 @router.get("/lab-notes/{slug}")
 async def get_lab_note(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     slug: str = Path(..., min_length=1, max_length=255),
 ):
     """Public endpoint: Get a single published lab note by slug."""
-    lab_note = (
-        db.query(LabNote)
-        .filter(LabNote.slug == slug, LabNote.published.is_(True))
-        .first()
+    lab_note = await db.scalar(
+        select(LabNote).where(LabNote.slug == slug, LabNote.published.is_(True))
     )
     if not lab_note:
         raise HTTPException(status_code=404, detail="Lab note not found")

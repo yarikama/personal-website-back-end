@@ -7,7 +7,7 @@ from api.security import SecurityHeadersMiddleware
 from core.config import API_PREFIX, CORS_ORIGINS, DEBUG, PROJECT_NAME, VERSION
 from core.events import lifespan
 from core.tracing import setup_tracing
-from db.session import engine
+from db.session import async_engine, engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -56,4 +56,5 @@ def get_application() -> FastAPI:
 
 
 app = get_application()
-setup_tracing(app, engine)
+# An async engine is traced through the sync engine it wraps.
+setup_tracing(app, [engine, async_engine.sync_engine])

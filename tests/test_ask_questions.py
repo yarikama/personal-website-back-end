@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from api.dependencies.auth import get_current_admin
 from core import config
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
 from db.session import Base
@@ -53,16 +53,9 @@ def entry(question, **change):
 
 
 @pytest.fixture
-def client(factory):
-    def override_get_db():
-        db = factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
+def client(factory, async_db):
     app = get_application()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = async_db
     # Signed in (tests/test_google_login.py covers how).
     app.dependency_overrides[get_current_admin] = lambda: ADMIN
     return TestClient(app)

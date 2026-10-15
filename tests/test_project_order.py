@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 import pytest
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.category import Category
 from db.models.projects import Project
 from db.session import Base
@@ -33,7 +33,7 @@ def session_factory():
         db.commit()
 
 
-def test_public_projects_follow_order_field(session_factory):
+def test_public_projects_follow_order_field(session_factory, async_db):
     # Inserted in an order that matches neither `order` nor creation time, so the
     # test fails if the endpoint falls back to insertion or physical row order.
     rows = [
@@ -63,15 +63,8 @@ def test_public_projects_follow_order_field(session_factory):
             )
         db.commit()
 
-    def override_get_db():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
     app = get_application()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = async_db
     response = TestClient(app).get("/api/v1/projects")
 
     assert response.status_code == 200
