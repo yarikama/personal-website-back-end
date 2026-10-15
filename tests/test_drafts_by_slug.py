@@ -2,7 +2,7 @@ import os
 from datetime import date
 
 import pytest
-from db.dependency import get_db
+from db.dependency import get_async_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.projects import Project
@@ -16,7 +16,7 @@ PREFIX = "test-draft-"
 
 
 @pytest.fixture
-def client():
+def client(async_db):
     database_url = os.getenv(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db"
     )
@@ -57,15 +57,8 @@ def client():
             )
         db.commit()
 
-    def override_get_db():
-        db = factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
     app = get_application()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = async_db
     yield TestClient(app)
 
     with factory() as db:

@@ -3,7 +3,8 @@
 from uuid import UUID
 
 from api.dependencies import CurrentAdmin
-from db.dependency import get_db
+from core.paginator import count
+from db.dependency import get_async_db
 from db.models.category import Category
 from db.models.projects import Project
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,7 +15,8 @@ from schemas.category import (
     CategoryUpdate,
     CategoryWithCount,
 )
-from sqlalchemy.orm import Session
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -26,10 +28,12 @@ router = APIRouter()
 @router.get("/admin/categories")
 async def get_all_categories_admin(
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Get all categories."""
-    categories = db.query(Category).order_by(Category.order, Category.label).all()
+    categories = await db.scalars(
+        select(Category).order_by(Category.order, Category.label)
+    )
     return {"data": [CategoryResponse.model_validate(c) for c in categories]}
 
 
@@ -37,11 +41,11 @@ async def get_all_categories_admin(
 async def create_category(
     category: CategoryCreate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Create a new category."""
     # Check if name already exists
-    existing = db.query(Category).filter(Category.name == category.name).first()
+    existing = await db.scalar(select(Category).where(Category.name == category.name))
     if existing:
         raise HTTPException(
             status_code=409,
@@ -50,8 +54,8 @@ async def create_category(
 
     db_category = Category(**category.model_dump())
     db.add(db_category)
-    db.commit()
-    db.refresh(db_category)
+    await db.commit()
+    await db.refresh(db_category)
     return {"data": CategoryResponse.model_validate(db_category)}
 
 
@@ -60,10 +64,10 @@ async def update_category(
     id: UUID,
     category: CategoryUpdate,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Update a category."""
-    db_category = db.query(Category).filter(Category.id == id).first()
+    db_category = await db.get(Category, id)
     if not db_category:
         raise HTTPException(status_code=404, detail="Category not found")
 
@@ -71,10 +75,10 @@ async def update_category(
 
     # Check if name is being updated and if it conflicts
     if "name" in update_data:
-        existing = (
-            db.query(Category)
-            .filter(Category.name == update_data["name"], Category.id != id)
-            .first()
+        existing = await db.scalar(
+            select(Category).where(
+                Category.name == update_data["name"], Category.id != id
+            )
         )
         if existing:
             raise HTTPException(
@@ -85,8 +89,8 @@ async def update_category(
     for field, value in update_data.items():
         setattr(db_category, field, value)
 
-    db.commit()
-    db.refresh(db_category)
+    await db.commit()
+    await db.refresh(db_category)
     return {"data": CategoryResponse.model_validate(db_category)}
 
 
@@ -94,15 +98,15 @@ async def update_category(
 async def delete_category(
     id: UUID,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Delete a category."""
-    db_category = db.query(Category).filter(Category.id == id).first()
+    db_category = await db.get(Category, id)
     if not db_category:
         raise HTTPException(status_code=404, detail="Category not found")
 
     # Check if category has projects
-    project_count = db.query(Project).filter(Project.category_id == id).count()
+    project_count = await count(db, select(Project).where(Project.category_id == id))
     if project_count > 0:
         raise HTTPException(
             status_code=409,
@@ -112,8 +116,8 @@ async def delete_category(
             ),
         )
 
-    db.delete(db_category)
-    db.commit()
+    await db.delete(db_category)
+    await db.commit()
     return None
 
 
@@ -121,17 +125,19 @@ async def delete_category(
 async def reorder_categories(
     request: CategoryReorderRequest,
     _admin: CurrentAdmin,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Admin endpoint: Reorder categories."""
     updated_count = 0
     for item in request.orders:
-        updated_count += (
-            db.query(Category)
-            .filter(Category.id == item.id)
-            .update({"order": item.order})
+        result = await db.execute(
+            update(Category)
+            .where(Category.id == item.id)
+            .values(order=item.order)
+            .returning(Category.id)
         )
-    db.commit()
+        updated_count += len(result.all())
+    await db.commit()
     return {
         "data": {
             "message": "Categories reordered successfully",
@@ -147,29 +153,29 @@ async def reorder_categories(
 
 @router.get("/categories")
 async def get_categories(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     include_counts: bool | None = Query(False, description="Include project counts"),
 ):
     """Public endpoint: Get all categories, optionally with project counts."""
-    categories = db.query(Category).order_by(Category.order, Category.label).all()
+    categories = list(
+        await db.scalars(select(Category).order_by(Category.order, Category.label))
+    )
 
     if not include_counts:
         return {"data": [CategoryResponse.model_validate(c) for c in categories]}
 
     # Get project counts for each category (only published projects)
+    published = select(Project).where(Project.published.is_(True))
     result = []
     for category in categories:
-        count = (
-            db.query(Project)
-            .filter(Project.category_id == category.id, Project.published.is_(True))
-            .count()
-        )
         category_dict = CategoryResponse.model_validate(category).model_dump()
-        category_dict["count"] = count
+        category_dict["count"] = await count(
+            db, published.where(Project.category_id == category.id)
+        )
         result.append(CategoryWithCount(**category_dict))
 
     # Add "All" category
-    total = db.query(Project).filter(Project.published.is_(True)).count()
+    total = await count(db, published)
     all_category = {
         "id": "00000000-0000-0000-0000-000000000000",  # Special UUID for "All"
         "name": "all",
@@ -187,10 +193,10 @@ async def get_categories(
 @router.get("/categories/{id}")
 async def get_category(
     id: UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Public endpoint: Get a single category by ID."""
-    category = db.query(Category).filter(Category.id == id).first()
+    category = await db.get(Category, id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"data": CategoryResponse.model_validate(category)}
