@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import aioboto3
 from aiobotocore.config import AioConfig
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 
 from core import config
 from services.images import (
@@ -25,6 +25,15 @@ IMMUTABLE = "public, max-age=31536000, immutable"
 
 # The admin's upload folders: note images, project covers, and the default.
 UPLOAD_FOLDERS = frozenset({"images", "notes", "covers"})
+
+
+class UploadRefusedError(ValueError):
+    """An upload that is not stored: an unknown folder, or not an image.
+    The message is for the admin."""
+
+
+class UploadTooLargeError(UploadRefusedError):
+    """An upload over MAX_UPLOAD_BYTES."""
 
 
 class R2StorageService:
@@ -56,14 +65,14 @@ class R2StorageService:
         type the browser sent are ignored.
         """
         if folder not in UPLOAD_FOLDERS:
-            raise HTTPException(400, f"Unknown folder: {folder[:40]}")
+            raise UploadRefusedError(f"Unknown folder: {folder[:40]}")
         data = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(413, "Image too large (over 20 MB).")
+            raise UploadTooLargeError("Image too large (over 20 MB).")
         try:
             ext, content_type = identify_upload(data)
         except NotAnImageError as error:
-            raise HTTPException(400, "Not a JPEG, PNG, GIF or WebP image.") from error
+            raise UploadRefusedError("Not a JPEG, PNG, GIF or WebP image.") from error
 
         # The UTC date, so a key does not depend on the machine's time zone.
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")

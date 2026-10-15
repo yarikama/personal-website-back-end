@@ -14,6 +14,13 @@ def anyio_backend():
     return "asyncio"
 
 
+def test_redis_replies_are_text():
+    # The services read str from Redis, as the tests' fixture gives them.
+    redis = events.connect_redis("redis://127.0.0.1:1/0")
+
+    assert redis.connection_pool.connection_kwargs["decode_responses"] is True
+
+
 @pytest.mark.anyio
 async def test_lifespan_without_redis_leaves_requests_unlimited(monkeypatch):
     monkeypatch.setattr(events, "REDIS_URL", Secret(""))

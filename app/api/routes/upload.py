@@ -1,13 +1,18 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from loguru import logger
 from redis.exceptions import RedisError
 
 from api.dependencies import CurrentAdmin
+from api.dependencies.redis import get_redis
 from schemas.upload import DeleteResponse, UploadData, UploadResponse
 from services.image_jobs import enqueue_variants
-from services.storage import storage_service
+from services.storage import (
+    UploadRefusedError,
+    UploadTooLargeError,
+    storage_service,
+)
 
 router = APIRouter()
 
@@ -20,10 +25,15 @@ async def upload_image(
     folder: str = "images",
 ):
     """Upload an image to R2 storage. Returns the public URL."""
-    url = await storage_service.upload_image(file, folder)
+    try:
+        url = await storage_service.upload_image(file, folder)
+    except UploadTooLargeError as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except UploadRefusedError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     # WebP variants are made in the background (worker.py). If queuing
     # fails, the worker's hourly reconcile finds the image anyway.
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     if redis is not None:
         try:
             await enqueue_variants(redis, storage_service.key_for(url))

@@ -24,6 +24,7 @@ from loguru import logger
 
 from api.dependencies.auth import current_admin
 from api.dependencies.rate_limit import rate_limit
+from api.dependencies.redis import get_redis
 from core import config
 from db.dependency import DB
 from schemas.ask import AskRequest
@@ -101,7 +102,7 @@ async def ask(body: AskRequest, request: Request, db: DB):
     await db.close()
 
     # The conversation so far; an unknown or expired id starts a new one.
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     history = await ask_history.load(redis, body.conversation)
     conversation = body.conversation if history else ask_history.new_id()
 

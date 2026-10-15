@@ -168,7 +168,7 @@ async def test_uploading_an_image_queues_its_variants(redis, monkeypatch):
 
     assert response.status_code == 200
     [(_, job)] = await redis.xrange(image_jobs.STREAM)
-    assert job == {b"key": b"covers/20260930/abcd1234.png"}
+    assert job == {"key": "covers/20260930/abcd1234.png"}
 
 
 @pytest.mark.anyio
@@ -182,7 +182,7 @@ async def test_reconcile_skips_images_whose_job_gave_up(redis):
 
     assert await reconcile(storage, redis) == 1
     [(_, job)] = await redis.xrange(STREAM)
-    assert job == {b"key": b"covers/new.png"}
+    assert job == {"key": "covers/new.png"}
 
     # Clearing the dead letters lets the next reconcile try again.
     await redis.delete(dead_letter_stream(STREAM))

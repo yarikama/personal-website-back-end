@@ -12,6 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.routing import Route
 
+from api.dependencies.redis import get_redis
 from core.config import API_PREFIX, MCP_ISSUER_URL
 from db.session import SessionLocal
 from mcp_server import lab_notes
@@ -69,7 +70,7 @@ def mount(
     """
     issuer = MCP_ISSUER_URL.rstrip("/")
     provider = WritingOAuth(
-        redis=lambda: getattr(app.state, "redis", None),
+        redis=lambda: get_redis(app),
         sessions=sessions,
         consent_url=f"{issuer}{API_PREFIX}/v1/auth/mcp/consent",
         resource=f"{issuer}/mcp",

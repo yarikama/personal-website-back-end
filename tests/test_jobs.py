@@ -108,8 +108,8 @@ async def test_a_job_that_keeps_failing_goes_to_the_dead_letter_stream(redis):
         await w.run_once()
 
     [(_, dead)] = await redis.xrange(dead_letter_stream(STREAM))
-    assert dead[b"key"] == b"corrupt.png"
-    assert b"cannot identify image file" in dead[b"error"]
+    assert dead["key"] == "corrupt.png"
+    assert "cannot identify image file" in dead["error"]
     assert await pending(redis) == 0
     assert await w.run_once() == 0
 

@@ -37,9 +37,10 @@ DURATION = Histogram(
 
 Handler = Callable[[dict[str, str]], Awaitable[None]]
 
-# A stream entry as XREADGROUP and XAUTOCLAIM return it: its id and fields.
-# redis-py types every reply as a union of all commands' shapes.
-Entry = tuple[bytes | str, dict[bytes | str, bytes | str]]
+# A stream entry as XREADGROUP and XAUTOCLAIM return it: its id and fields,
+# as str (core.events.connect_redis decodes replies). redis-py types every
+# reply as a union of all commands' shapes.
+Entry = tuple[str, dict[str, str]]
 
 
 def dead_letter_stream(stream: str) -> str:
@@ -50,16 +51,7 @@ async def enqueue(redis: Redis, stream: str, job: dict[str, str]) -> str:
     """Add a job; returns its stream id."""
     fields: dict[FieldT, EncodableT] = {**job}
     job_id = await redis.xadd(stream, fields, maxlen=10_000, approximate=True)
-    return job_id.decode() if isinstance(job_id, bytes) else job_id
-
-
-def decode(fields: dict[bytes | str, bytes | str]) -> dict[str, str]:
-    return {
-        (k.decode() if isinstance(k, bytes) else k): (
-            v.decode() if isinstance(v, bytes) else v
-        )
-        for k, v in fields.items()
-    }
+    return cast(str, job_id)
 
 
 class Worker:
@@ -114,25 +106,21 @@ class Worker:
         )
         return cast(list[Entry], reply[1])
 
-    async def _deliveries(self, job_id) -> int:
+    async def _deliveries(self, key: str) -> int:
         pending = await self.redis.xpending_range(
-            self.stream, self.group, min=job_id, max=job_id, count=1
+            self.stream, self.group, min=key, max=key, count=1
         )
         return int(pending[0]["times_delivered"]) if pending else 1
 
-    async def _handle(
-        self, job_id: bytes | str, fields: dict[bytes | str, bytes | str]
-    ) -> None:
-        key = job_id.decode() if isinstance(job_id, bytes) else job_id
-        job = decode(fields)
-        if await self._deliveries(job_id) > self.max_deliveries:
+    async def _handle(self, key: str, job: dict[str, str]) -> None:
+        if await self._deliveries(key) > self.max_deliveries:
             await self.redis.xadd(
                 dead_letter_stream(self.stream),
                 {**job, "job_id": key, "error": self.last_error.pop(key, "unknown")},
                 maxlen=1_000,
                 approximate=True,
             )
-            await self.redis.xack(self.stream, self.group, job_id)
+            await self.redis.xack(self.stream, self.group, key)
             JOBS.labels(self.stream, "dead").inc()
             logger.error(f"Job {key} on {self.stream} gave up: {job}")
             return
@@ -147,7 +135,7 @@ class Worker:
             return
         finally:
             DURATION.labels(self.stream).observe(time.perf_counter() - started)
-        await self.redis.xack(self.stream, self.group, job_id)
+        await self.redis.xack(self.stream, self.group, key)
         self.last_error.pop(key, None)
         JOBS.labels(self.stream, "done").inc()
 
@@ -163,7 +151,7 @@ class Worker:
                 block=self.block_ms,
             )
             # [[stream, entries]], one stream asked for.
-            streams = cast(list[tuple[bytes | str, list[Entry]]], reply)
+            streams = cast(list[tuple[str, list[Entry]]], reply)
             jobs = streams[0][1] if streams else []
         for job_id, fields in jobs:
             await self._handle(job_id, fields)
@@ -185,7 +173,6 @@ class Worker:
 async def queue_depth(redis: Redis, stream: str, group: str) -> dict[str, int] | None:
     """Jobs not yet read (lag) and read but unacknowledged (pending)."""
     for info in await redis.xinfo_groups(stream):
-        name = info["name"]
-        if (name.decode() if isinstance(name, bytes) else name) == group:
+        if info["name"] == group:
             return {"lag": info.get("lag") or 0, "pending": info["pending"]}
     return None

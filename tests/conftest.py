@@ -27,10 +27,15 @@ def anyio_backend():
 async def redis():
     """
     fakeredis (with real Lua) by default; a real Redis when REDIS_TEST_URL
-    points at one, as in CI. That database is flushed.
+    points at one, as in CI. That database is flushed. Replies are str, as
+    core.events.connect_redis makes them.
     """
     url = os.environ.get("REDIS_TEST_URL")
-    client = Redis.from_url(url) if url else FakeAsyncRedis()
+    client = (
+        Redis.from_url(url, decode_responses=True)
+        if url
+        else FakeAsyncRedis(decode_responses=True)
+    )
     await client.flushdb()
     yield client
     await client.flushdb()

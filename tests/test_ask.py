@@ -694,7 +694,7 @@ async def test_every_visitor_counts_against_the_daily_site_budget(
         )
 
     bucket = await redis.hgetall(RateLimiter.key(ask_route.ASK_ALL, "all"))
-    assert float(bucket[b"tokens"]) == pytest.approx(ask_route.ASK_ALL.limit - 2, 0.01)
+    assert float(bucket["tokens"]) == pytest.approx(ask_route.ASK_ALL.limit - 2, 0.01)
 
 
 @pytest.mark.anyio
