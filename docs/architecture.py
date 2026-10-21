@@ -4,7 +4,7 @@ Draws docs/architecture.png: how the backend runs in production.
 Diagram as code with mingrammer/diagrams (needs Graphviz: brew install
 graphviz). Edit this file, then from the repo root:
 
-    uv run --with diagrams python docs/architecture.py
+    uv run --extra docs python docs/architecture.py
 """
 
 from pathlib import Path

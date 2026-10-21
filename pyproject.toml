@@ -40,6 +40,9 @@ dev = [
     "pyright>=1.1.414",
     "pytest-cov>=6",
 ]
+docs = [
+    "diagrams>=0.25.1",
+]
 
 [tool.ruff]
 line-length = 88

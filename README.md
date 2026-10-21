@@ -20,7 +20,7 @@ It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on
 
 The two models share one 8 GB laptop GPU, through Kubernetes time-slicing with a fixed memory budget for each. The cluster is managed with GitOps (Argo CD). Its manifests and runbooks live in a separate, private `homelab` repo. References below to "homelab `docs/…`" point there.
 
-The diagram is code: edit [`docs/architecture.py`](docs/architecture.py) and run `uv run --with diagrams python docs/architecture.py` (needs Graphviz). It uses [mingrammer/diagrams](https://github.com/mingrammer/diagrams) and the vLLM logo from the vLLM project.
+The diagram is code: edit [`docs/architecture.py`](docs/architecture.py) and run `uv run --extra docs python docs/architecture.py` (needs Graphviz). It uses [mingrammer/diagrams](https://github.com/mingrammer/diagrams) and the vLLM logo from the vLLM project.
 
 ## Milestones
 
