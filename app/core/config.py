@@ -6,7 +6,7 @@ from loguru import logger
 from starlette.config import Config
 from starlette.datastructures import CommaSeparatedStrings, Secret
 
-from core.logging import FORMAT, InterceptHandler, add_trace_id
+from core.logging import FORMAT, InterceptHandler, RedactSecretQuery, add_trace_id
 
 # Local development keeps its settings in .env. In the cluster they come from
 # the environment and there is no file; Starlette warns about a missing one.
@@ -92,6 +92,9 @@ LOGGING_LEVEL = logging.DEBUG if DEBUG else logging.INFO
 logging.basicConfig(
     handlers=[InterceptHandler(level=LOGGING_LEVEL)], level=LOGGING_LEVEL
 )
+# uvicorn configures its loggers before importing the app, so this filter,
+# added at import, stays.
+logging.getLogger("uvicorn.access").addFilter(RedactSecretQuery())
 logger.configure(
     handlers=[{"sink": sys.stderr, "level": LOGGING_LEVEL, "format": FORMAT}],
     patcher=add_trace_id,

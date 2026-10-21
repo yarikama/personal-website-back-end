@@ -41,6 +41,14 @@ def traced():
     def health():
         return {"status": "ok"}
 
+    @app.get("/api/v1/auth/google/callback")
+    def callback(code: str = "", state: str = ""):
+        return {}
+
+    @app.get("/api/v1/lab-notes")
+    def notes(tag: str = ""):
+        return {}
+
     instrument(app, provider)
     yield TestClient(app), exporter, seen
     # Both patch their libraries globally; leave other tests untraced.
@@ -146,3 +154,34 @@ print(len(processors), type(metrics.get_meter_provider()).__name__,
     assert processors == "1"
     assert meter_provider.startswith("_Proxy")
     assert logger_provider.startswith("Proxy")
+
+
+def test_a_sign_in_requests_query_stays_out_of_its_trace(traced):
+    client, exporter, _ = traced
+
+    client.get("/api/v1/auth/google/callback?code=one-time-code&state=s")
+    client.get("/api/v1/lab-notes?tag=GPU")
+
+    urls = {
+        s.attributes["http.route"]: s.attributes["http.url"]
+        for s in exporter.get_finished_spans()
+        if s.kind.name == "SERVER"
+    }
+    assert urls["/api/v1/auth/google/callback"].endswith(
+        "/api/v1/auth/google/callback?redacted"
+    )
+    assert urls["/api/v1/lab-notes"].endswith("/api/v1/lab-notes?tag=GPU")
+
+
+def test_the_new_url_attributes_are_redacted_too():
+    # The instrumentation uses the old HTTP conventions for now; under the
+    # new ones the query is url.full's and url.query's.
+    span = TracerProvider().get_tracer(__name__).start_span("GET /authorize")
+    span.set_attribute("url.full", "https://api.yarikama.com/authorize?state=s")
+    span.set_attribute("url.query", "state=s")
+
+    tracing.redact_url(span, {"path": "/authorize"})
+
+    attributes = getattr(span, "attributes", {})
+    assert attributes["url.full"] == "https://api.yarikama.com/authorize?redacted"
+    assert attributes["url.query"] == "redacted"

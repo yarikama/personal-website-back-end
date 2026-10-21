@@ -6,6 +6,7 @@ standard variable, e.g. http://tempo.monitoring:4318).
 """
 
 import os
+from typing import Any
 
 from fastapi import FastAPI
 from opentelemetry import trace
@@ -17,17 +18,38 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
+from opentelemetry.trace import Span
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from core.logging import has_secret_query, without_secret_query
 
 # Probes hit /health every few seconds; traces of them are only noise.
 EXCLUDED_URLS = "health"
+# The attributes that hold a request's URL with its query, under the old and
+# the new HTTP semantic conventions.
+URL_ATTRIBUTES = ("http.url", "url.full", "http.target")
+
+
+def redact_url(span: Span, scope: dict[str, Any]) -> None:
+    """Takes the query off a sign-in request's URL on its span, as off the
+    access log (core/logging.py): it holds one-time secrets."""
+    attributes = getattr(span, "attributes", None) or {}
+    for key in URL_ATTRIBUTES:
+        value = attributes.get(key)
+        if isinstance(value, str):
+            span.set_attribute(key, without_secret_query(value))
+    if "url.query" in attributes and has_secret_query(scope.get("path", "")):
+        span.set_attribute("url.query", "redacted")
 
 
 def instrument(
     app: FastAPI, provider: TracerProvider, engine: AsyncEngine | None = None
 ) -> None:
     FastAPIInstrumentor.instrument_app(
-        app, tracer_provider=provider, excluded_urls=EXCLUDED_URLS
+        app,
+        tracer_provider=provider,
+        excluded_urls=EXCLUDED_URLS,
+        server_request_hook=redact_url,
     )
     if engine is not None:
         # The instrumentation hooks the sync engine that the async one wraps.
