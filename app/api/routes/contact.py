@@ -10,12 +10,12 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy import select
 
-from api.crud import get_or_404
 from api.dependencies import CurrentAdmin
 from api.dependencies.rate_limit import rate_limit
 from core.paginator import paginate
 from db.dependency import DB
 from db.models.contact import ContactMessage
+from db.rows import get_or_raise
 from schemas.contact import ContactCreate, ContactResponse, ContactUpdate
 from services.notify import NewMessage, send_contact_notification
 from services.rate_limit import CONTACT
@@ -73,7 +73,7 @@ async def update_contact(
     db: DB,
     id: Annotated[UUID, Path()],
 ):
-    db_contact = await get_or_404(db, ContactMessage, id, "Contact message")
+    db_contact = await get_or_raise(db, ContactMessage, id, "Contact message")
     for field, value in contact_update.model_dump(exclude_unset=True).items():
         setattr(db_contact, field, value)
 
@@ -88,5 +88,5 @@ async def delete_contact(
     db: DB,
     id: Annotated[UUID, Path()],
 ):
-    await db.delete(await get_or_404(db, ContactMessage, id, "Contact message"))
+    await db.delete(await get_or_raise(db, ContactMessage, id, "Contact message"))
     await db.commit()

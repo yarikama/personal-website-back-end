@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.body_limit import BodyLimitMiddleware
 from api.cache import PublicCacheMiddleware
@@ -10,7 +11,18 @@ from api.security import SecurityHeadersMiddleware
 from core.config import API_PREFIX, CORS_ORIGINS, DEBUG, PROJECT_NAME, VERSION
 from core.events import lifespan
 from core.tracing import setup_tracing
+from db.rows import ConflictError, NotFoundError
 from db.session import engine
+
+
+# The services raise these with a message fit to show (db/rows.py); the
+# answer is FastAPI's own for an HTTPException: {"detail": message}.
+async def not_found(_request: Request, error: Exception) -> JSONResponse:
+    return JSONResponse({"detail": str(error)}, status_code=404)
+
+
+async def conflict(_request: Request, error: Exception) -> JSONResponse:
+    return JSONResponse({"detail": str(error)}, status_code=409)
 
 
 def get_application() -> FastAPI:
@@ -50,6 +62,9 @@ def get_application() -> FastAPI:
     application.add_middleware(PublicCacheMiddleware)
     # On every response, including 429s and cached copies.
     application.add_middleware(SecurityHeadersMiddleware)
+
+    application.add_exception_handler(NotFoundError, not_found)
+    application.add_exception_handler(ConflictError, conflict)
 
     application.include_router(health_router)
     application.include_router(api_router, prefix=API_PREFIX)

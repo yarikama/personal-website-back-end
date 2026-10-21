@@ -1,71 +1,14 @@
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query
-from sqlalchemy import Select, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from fastapi import APIRouter, Path, Query
 
-from api.crud import ensure_unique, get_or_404
 from api.dependencies import CurrentAdmin
-from core.paginator import paginate
 from db.dependency import DB
-from db.models.category import Category
-from db.models.projects import Project
 from schemas.projects import ProjectCreate, ProjectResponse, ProjectUpdate
+from services.content import projects
 
 router = APIRouter()
-
-# Display order: the `order` the admin sets on each project, then newest first.
-# id breaks any remaining tie so offset pagination is stable.
-PROJECT_DISPLAY_ORDER = (Project.order, Project.created_at.desc(), Project.id)
-
-# ProjectResponse reads the category, which an async session cannot load on
-# access (Project.category_rel is lazy="raise"): every query that returns
-# projects loads it with them.
-WITH_CATEGORY = joinedload(Project.category_rel)
-
-
-async def reload(db: AsyncSession, id: UUID) -> Project | None:
-    """The project as the database has it now, with its category, after a
-    commit. The query fills in what the session has expired or never loaded
-    (updated_at, set by the UPDATE; the category); populate_existing also
-    overwrites what it did load, so a category read before a change of
-    category_id cannot be returned stale."""
-    return await db.scalar(
-        select(Project)
-        .options(WITH_CATEGORY)
-        .where(Project.id == id)
-        .execution_options(populate_existing=True)
-    )
-
-
-async def list_projects(
-    db: AsyncSession,
-    query: Select[Any],
-    category_id: UUID | None,
-    featured: bool | None,
-    tag: str | None,
-    limit: int,
-    offset: int,
-) -> dict[str, Any]:
-    """A page of `query`'s projects, filtered as the works page asks."""
-    if category_id:
-        query = query.where(Project.category_id == category_id)
-    if featured is not None:
-        query = query.where(Project.featured == featured)
-    if tag:
-        query = query.where(Project.tags.contains([tag]))
-    query = query.options(WITH_CATEGORY).order_by(*PROJECT_DISPLAY_ORDER)
-    return await paginate(db, query, ProjectResponse, offset, limit)
-
-
-async def ensure_category(db: AsyncSession, id: UUID) -> None:
-    if await db.get(Category, id) is None:
-        raise HTTPException(
-            status_code=404, detail=f"Category with id '{id}' not found"
-        )
-
 
 # ============================================================================
 # Admin Routes (require authentication)
@@ -85,22 +28,22 @@ async def get_all_projects_admin(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Admin endpoint: Get all projects including unpublished."""
-    return await list_projects(
-        db, select(Project), category_id, featured, tag, limit, offset
+    return await projects.page(
+        db,
+        published_only=False,
+        category_id=category_id,
+        featured=featured,
+        tag=tag,
+        limit=limit,
+        offset=offset,
     )
 
 
 @router.post("/admin/projects", status_code=201)
 async def create_project(project_in: ProjectCreate, _admin: CurrentAdmin, db: DB):
     """Admin endpoint: Create a new project."""
-    await ensure_unique(db, Project.slug, project_in.slug, "Project")
-    await ensure_category(db, project_in.category_id)
-
-    project = Project(**project_in.model_dump())
-    db.add(project)
-    await db.commit()
-
-    return {"data": ProjectResponse.model_validate(await reload(db, project.id))}
+    created = await projects.create(db, project_in)
+    return {"data": ProjectResponse.model_validate(created)}
 
 
 @router.put("/admin/projects/{id}")
@@ -108,29 +51,14 @@ async def update_project(
     id: UUID, project_in: ProjectUpdate, _admin: CurrentAdmin, db: DB
 ):
     """Admin endpoint: Update a project."""
-    db_project = await get_or_404(db, Project, id, "Project")
-
-    update_data = project_in.model_dump(exclude_unset=True)
-    if "slug" in update_data:
-        await ensure_unique(
-            db, Project.slug, update_data["slug"], "Project", exclude_id=id
-        )
-    if "category_id" in update_data:
-        await ensure_category(db, update_data["category_id"])
-
-    for field, value in update_data.items():
-        setattr(db_project, field, value)
-
-    await db.commit()
-
-    return {"data": ProjectResponse.model_validate(await reload(db, id))}
+    updated = await projects.update(db, id, project_in)
+    return {"data": ProjectResponse.model_validate(updated)}
 
 
 @router.delete("/admin/projects/{id}", status_code=204)
 async def delete_project(id: UUID, _admin: CurrentAdmin, db: DB):
     """Admin endpoint: Delete a project."""
-    await db.delete(await get_or_404(db, Project, id, "Project"))
-    await db.commit()
+    await projects.delete(db, id)
 
 
 # ============================================================================
@@ -150,18 +78,19 @@ async def get_projects(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Public endpoint: Get only published projects."""
-    published = select(Project).where(Project.published.is_(True))
-    return await list_projects(db, published, category_id, featured, tag, limit, offset)
+    return await projects.page(
+        db,
+        published_only=True,
+        category_id=category_id,
+        featured=featured,
+        tag=tag,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/projects/{slug}")
 async def get_project(db: DB, slug: Annotated[str, Path(min_length=1, max_length=255)]):
     """Public endpoint: Get a single published project by slug."""
-    project = await db.scalar(
-        select(Project)
-        .options(WITH_CATEGORY)
-        .where(Project.slug == slug, Project.published.is_(True))
-    )
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await projects.get_published(db, slug)
     return {"data": ProjectResponse.model_validate(project)}

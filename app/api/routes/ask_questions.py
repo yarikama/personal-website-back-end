@@ -10,12 +10,12 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.crud import get_or_404
 from api.dependencies import CurrentAdmin
 from core.paginator import count, paginate
 from db.dependency import DB
 from db.models.admin_seen import AdminSeen
 from db.models.ask import AskQuestion
+from db.rows import get_or_raise
 from schemas.ask_questions import (
     AskQuestionRating,
     AskQuestionResponse,
@@ -103,7 +103,7 @@ async def rate_question(
     _admin: CurrentAdmin,
     db: DB,
 ):
-    row = await get_or_404(db, AskQuestion, id, "Question")
+    row = await get_or_raise(db, AskQuestion, id, "Question")
     row.rating = body.rating
     await db.commit()
     await db.refresh(row)
