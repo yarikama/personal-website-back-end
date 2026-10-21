@@ -24,9 +24,7 @@ async def get_all_lab_notes_admin(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Admin endpoint: Get all lab notes including unpublished."""
-    return await lab_notes.page(
-        db, published_only=False, tag=tag, limit=limit, offset=offset
-    )
+    return await lab_notes.page(db, published=None, tag=tag, limit=limit, offset=offset)
 
 
 @router.get("/admin/lab-notes/{id}")
@@ -70,9 +68,7 @@ async def get_lab_notes(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Public endpoint: Get only published lab notes."""
-    return await lab_notes.page(
-        db, published_only=True, tag=tag, limit=limit, offset=offset
-    )
+    return await lab_notes.page(db, published=True, tag=tag, limit=limit, offset=offset)
 
 
 @router.get("/lab-notes/tags")

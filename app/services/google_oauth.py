@@ -57,6 +57,16 @@ class Started:
     url: str
 
 
+@dataclass(frozen=True)
+class SignedIn:
+    """Who signed in, and what for: the admin page to return to, or the MCP
+    sign-in request to complete."""
+
+    email: str
+    next: str
+    mcp: str | None
+
+
 def state_key(state: str) -> str:
     return f"admin:oauth:{state}"
 
@@ -66,15 +76,16 @@ def code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
-async def start(redis: Redis, client: Client, next_path: str) -> Started:
+async def start(
+    redis: Redis, client: Client, next_path: str, mcp: str | None = None
+) -> Started:
+    """`mcp`: the MCP sign-in request this is for (services/mcp_oauth.py),
+    if any; finish() hands it back."""
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)  # 86 characters; PKCE allows 43-128
     nonce = secrets.token_urlsafe(16)
-    await redis.set(
-        state_key(state),
-        json.dumps({"verifier": verifier, "nonce": nonce, "next": next_path}),
-        ex=STATE_TTL_SECONDS,
-    )
+    kept = {"verifier": verifier, "nonce": nonce, "next": next_path, "mcp": mcp}
+    await redis.set(state_key(state), json.dumps(kept), ex=STATE_TTL_SECONDS)
     query = urlencode(
         {
             "client_id": client.client_id,
@@ -172,9 +183,8 @@ async def finish(
     state: str,
     code: str,
     http: httpx.AsyncClient,
-) -> tuple[str, str]:
-    """The signed-in email and the admin page to return to."""
+) -> SignedIn:
     kept = await take_state(redis, state)
     id_token = await exchange_code(client, code, kept["verifier"], http)
     claims = check_id_token(id_token, client.client_id, kept["nonce"])
-    return allowed_email(claims, allowed), kept["next"]
+    return SignedIn(allowed_email(claims, allowed), kept["next"], kept.get("mcp"))

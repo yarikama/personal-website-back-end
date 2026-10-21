@@ -156,3 +156,28 @@ ASK_MAX_CONCURRENT: int = config("ASK_MAX_CONCURRENT", cast=int, default=4)
 ASK_QUESTION_RETENTION_DAYS: int = config(
     "ASK_QUESTION_RETENTION_DAYS", cast=int, default=30
 )
+
+# The writing MCP server (mcp_server/): Claude, in Claude Code or claude.ai,
+# reads and edits the notes, projects and categories. Off unless MCP_ENABLED.
+# MCP_ISSUER_URL is this API's public origin: the OAuth endpoints
+# (/authorize, /token, /register) live at its root, the server at /mcp.
+MCP_ENABLED: bool = config("MCP_ENABLED", cast=bool, default=False)
+MCP_ISSUER_URL: str = config("MCP_ISSUER_URL", default="https://api.yarikama.com")
+# Anyone may register a client (RFC 7591, how claude.ai and Claude Code
+# connect), but only with redirect URIs from this list, so an authorization
+# code is only ever sent to one of these. "*" stands for any port, for
+# Claude Code's callback on the owner's own machine.
+MCP_REDIRECT_URIS: tuple[str, ...] = tuple(
+    config(
+        "MCP_REDIRECT_URIS",
+        cast=CommaSeparatedStrings,
+        default=(
+            "https://claude.ai/api/mcp/auth_callback,"
+            "https://claude.com/api/mcp/auth_callback,"
+            "http://localhost:*/callback,"
+            "http://127.0.0.1:*/callback"
+        ),
+    )
+)
+MCP_ACCESS_TOKEN_MINUTES: int = config("MCP_ACCESS_TOKEN_MINUTES", cast=int, default=60)
+MCP_REFRESH_TOKEN_DAYS: int = config("MCP_REFRESH_TOKEN_DAYS", cast=int, default=30)

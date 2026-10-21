@@ -10,6 +10,9 @@ from services.rate_limit import PUBLIC, client_id, retry_after_header
 # autocomplete on every pause in typing: a public budget would only get in
 # the owner's way.
 EXEMPT_PREFIXES = (f"{API_PREFIX}/v1/admin/",)
+# The writing MCP server's OAuth endpoints (mcp_server/server.py), outside
+# the API's prefix: anyone may call them, and /register adds a row.
+LIMITED_PATHS = ("/authorize", "/token", "/register", "/revoke")
 
 
 class PublicRateLimitMiddleware:
@@ -29,7 +32,10 @@ class PublicRateLimitMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] == "OPTIONS"
-            or not scope["path"].startswith(f"{API_PREFIX}/")
+            or not (
+                scope["path"].startswith(f"{API_PREFIX}/")
+                or scope["path"] in LIMITED_PATHS
+            )
             or scope["path"].startswith(EXEMPT_PREFIXES)
         ):
             await self.app(scope, receive, send)

@@ -257,6 +257,15 @@ async def test_admin_routes_and_preflights_are_not_counted(client, redis):
     assert await redis.exists(RateLimiter.key(PUBLIC, "127.0.0.1")) == 0
 
 
+async def test_the_mcp_sign_in_endpoints_are_counted(client, redis):
+    # /mcp itself takes a token; /register and the rest anyone may call.
+    await client.post("/mcp")
+    assert await redis.exists(RateLimiter.key(PUBLIC, "127.0.0.1")) == 0
+
+    await client.post("/register", json={})
+    assert await redis.exists(RateLimiter.key(PUBLIC, "127.0.0.1")) == 1
+
+
 def test_every_counter_series_exists_from_the_start():
     from prometheus_client import REGISTRY
 

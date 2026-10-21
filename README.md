@@ -19,6 +19,7 @@ It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on
 - **Ask about my work**: `POST /api/v1/ask` streams an answer from Qwen3.5-4B over server-sent events, with checked citations to the projects, notes and resume it used.
 - **Note autocomplete**: suggestions from Qwen3.5-0.8B-Base while the author writes. Every suggestion and what became of it is stored as training data.
 - **Images**: uploads go to Cloudflare R2. A background worker makes WebP variants of each image.
+- **Writing with Claude**: an MCP server at `/mcp` lets Claude (Claude Code or claude.ai) draft, edit and publish notes, signed in as the owner.
 - **Protection**: rate limits in Redis, a cap on concurrent answers, a daily limit on questions for the whole site, and an admin area behind Sign in with Google.
 
 ![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](docs/architecture.svg)
@@ -43,7 +44,7 @@ More in [Development](docs/development.md).
 | [Architecture](docs/architecture.md) | Tech stack, project layout, the architecture diagram |
 | [Design notes](docs/design.md) | Why the chat reads everything instead of retrieving, autocomplete, rate limits, jobs, caching, observability |
 | [Security](docs/security.md) | Sign-in, sessions, uploads, headers |
-| [API](docs/api.md) | Endpoints, the ask stream, rate limits, image variants, caching |
+| [API](docs/api.md) | Endpoints, the ask stream, the writing MCP server, rate limits, image variants, caching |
 | [Configuration](docs/configuration.md) | Every environment variable |
 | [Development](docs/development.md) | Running locally, env files, testing, migrations, make commands |
 | [Deployment](docs/deployment.md) | Merge-to-deploy, rollback, production config, backups |
