@@ -20,6 +20,7 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 from loguru import logger
+from mcp.server.auth.provider import TokenError
 from sqlalchemy import delete
 
 from core import config
@@ -30,7 +31,7 @@ from main import get_application
 from mcp_server import server as mcp_server
 from services import google_oauth
 from services.content.lab_notes import read_time
-from services.mcp_oauth import redirect_allowed
+from services.mcp_oauth import WritingOAuth, pending_key, redirect_allowed
 
 pytestmark = pytest.mark.anyio
 
@@ -101,12 +102,22 @@ def tables(sync_sessions):
 
 
 @pytest.fixture
-async def client(redis, async_sessions, db_override, tables, google):
+def app(redis, async_sessions, db_override, tables, google):
     app = get_application()
     app.state.redis = redis
     # The public routes, to check what visitors see.
     app.dependency_overrides[get_db] = db_override
     mcp_server.mount(app, sessions=async_sessions)
+    return app
+
+
+@pytest.fixture
+def provider(app) -> WritingOAuth:
+    return app.state.mcp_oauth
+
+
+@pytest.fixture
+async def client(app):
     async with app.state.mcp.session_manager.run():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url=ISSUER) as client:
@@ -511,6 +522,138 @@ async def test_signing_in_for_claude_starts_no_admin_session(client):
     assert "__Host-admin_session" not in client.cookies
 
 
+async def test_without_redis_sign_in_is_unavailable(app, client):
+    client_id = (await register(client)).json()["client_id"]
+    app.state.redis = None
+    asked = await authorize(client, client_id, pkce()[1])
+    assert asked.status_code == 302
+    query = parse_qs(urlsplit(asked.headers["location"]).query)
+    assert query["error"] == ["temporarily_unavailable"]
+
+
+async def test_an_unknown_client_cannot_start_a_sign_in(client):
+    asked = await authorize(client, "made-up-client", pkce()[1])
+    assert asked.status_code == 400
+    assert "location" not in asked.headers
+
+
+async def test_a_code_for_an_account_removed_meanwhile_is_refused(client, monkeypatch):
+    client_id, verifier, code = await code_for(client)
+    monkeypatch.setattr(config, "ADMIN_EMAILS", frozenset({"someone@example.com"}))
+    response = await trade(client, client_id, code, verifier)
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_grant"
+
+
+async def test_a_client_deleted_during_sign_in_gets_no_consent_page(
+    client, sync_sessions
+):
+    url, _ = await asked_by(client)
+    with sync_sessions() as db:
+        db.execute(delete(McpClient))
+        db.commit()
+    page = await client.get(url)
+    assert page.headers["location"] == f"{SITE}/admin/login?error=expired"
+
+
+async def test_turning_the_server_off_during_sign_in_ends_it(app, client):
+    # One request allowed and on its way to Google, one at the consent page.
+    login = await allow(client, await authorize(client, *await new_request(client)))
+    url, _ = await asked_by(client)
+    page = await client.get(url)
+    fields = dict(re.findall(r'name="(mcp|token)" value="([^"]*)"', page.text))
+    app.state.mcp_oauth = None
+
+    answered = await client.post(
+        "/api/v1/auth/mcp/consent", data={**fields, "decision": "allow"}
+    )
+    assert answered.headers["location"] == f"{SITE}/admin/login?error=not_configured"
+    back = await through_google(client, login)
+    assert back.headers["location"] == f"{SITE}/admin/login?error=not_configured"
+
+
+async def new_request(client) -> tuple[str, str]:
+    """A registered client's id, and a PKCE challenge for it."""
+    client_id = (await register(client)).json()["client_id"]
+    return client_id, pkce()[1]
+
+
+async def test_the_consent_page_fails_closed_when_redis_does(
+    client, provider, monkeypatch
+):
+    url, _ = await asked_by(client)
+    page = await client.get(url)
+    fields = dict(re.findall(r'name="(mcp|token)" value="([^"]*)"', page.text))
+
+    async def down(*args):
+        raise ConnectionError("Redis is down")
+
+    monkeypatch.setattr(provider, "pending", down)
+    monkeypatch.setattr(provider, "deny", down)
+    shown = await client.get(url)
+    assert shown.headers["location"] == f"{SITE}/admin/login?error=unavailable"
+    answered = await client.post(
+        "/api/v1/auth/mcp/consent", data={**fields, "decision": "deny"}
+    )
+    assert answered.headers["location"] == f"{SITE}/admin/login?error=unavailable"
+
+
+async def test_denying_a_request_that_expired_goes_back_to_the_login_page(
+    client, redis
+):
+    url, id = await asked_by(client)
+    page = await client.get(url)
+    fields = dict(re.findall(r'name="(mcp|token)" value="([^"]*)"', page.text))
+    await redis.delete(pending_key(id))
+    answered = await client.post(
+        "/api/v1/auth/mcp/consent", data={**fields, "decision": "deny"}
+    )
+    assert answered.headers["location"] == f"{SITE}/admin/login?error=expired"
+
+
+# Two requests at once: the SDK reads a code or refresh token, then hands it
+# over to be traded. Both can read it; only one may trade it.
+
+
+async def test_of_two_trades_of_one_code_one_wins(client, provider):
+    client_id, _, code = await code_for(client)
+    registered = await provider.get_client(client_id)
+    assert registered is not None
+    loaded = await provider.load_authorization_code(registered, code)
+    assert loaded is not None
+    await provider.exchange_authorization_code(registered, loaded)
+    with pytest.raises(TokenError, match="already used"):
+        await provider.exchange_authorization_code(registered, loaded)
+
+
+async def test_of_two_trades_of_one_refresh_token_one_wins(client, provider):
+    tokens = await signed_in(client)
+    registered = await provider.get_client(tokens["client_id"])
+    assert registered is not None
+    loaded = await provider.load_refresh_token(registered, tokens["refresh_token"])
+    assert loaded is not None
+    await provider.exchange_refresh_token(registered, loaded, [])
+    with pytest.raises(TokenError, match="already used"):
+        await provider.exchange_refresh_token(registered, loaded, [])
+
+
+async def test_revoking_a_token_twice_does_nothing_more(client, provider):
+    tokens = await signed_in(client)
+    access = await provider.load_access_token(tokens["access_token"])
+    assert access is not None
+    await provider.revoke_token(access)
+    await provider.revoke_token(access)
+
+    tokens = await signed_in(client)
+    registered = await provider.get_client(tokens["client_id"])
+    assert registered is not None
+    refresh = await provider.load_refresh_token(registered, tokens["refresh_token"])
+    assert refresh is not None
+    await provider.revoke_token(refresh)
+    await provider.revoke_token(refresh)
+    assert await provider.load_access_token(tokens["access_token"]) is None
+
+
 # Tokens
 
 
@@ -630,6 +773,8 @@ async def test_an_update_changes_only_the_fields_given(tool):
     assert updated["title"] == "New Title"
     assert updated["excerpt"] == note["excerpt"]
     assert updated["read_time"] == "2 min read"
+    retitled = await tool("update_lab_note", id_or_slug=note["slug"], title="Again")
+    assert retitled["read_time"] == updated["read_time"]
     nothing = await tool("update_lab_note", id_or_slug=note["slug"])
     assert "Nothing to change" in nothing["error"]
 
@@ -771,6 +916,19 @@ async def test_the_review_prompt_carries_the_note(tool, mcp):
     text = result["messages"][0]["content"]["text"]
     assert note["content"] in text
     assert "draft" in text
+
+
+async def test_a_missing_note_is_neither_a_resource_nor_reviewed(client):
+    token = (await signed_in(client))["access_token"]
+    read = await rpc(client, token, "resources/read", {"uri": f"notes://{PREFIX}none"})
+    assert "error" in read.json()
+    review = await rpc(
+        client,
+        token,
+        "prompts/get",
+        {"name": "review_lab_note", "arguments": {"slug": f"{PREFIX}none"}},
+    )
+    assert "error" in review.json()
 
 
 # Read time

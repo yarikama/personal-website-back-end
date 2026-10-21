@@ -87,7 +87,9 @@ def mount(
     # Stateless, it logs "Terminating session: None" after every request.
     logging.getLogger("mcp.server.streamable_http_manager").setLevel(logging.WARNING)
     for route in http.routes:
-        if isinstance(route, Route):
-            app.router.routes.append(Route(route.path, endpoint=http))
+        # The SDK lays out plain routes; anything else would need routing
+        # here, and skipping it would lose an endpoint without a word.
+        assert isinstance(route, Route), f"unexpected route {route!r}"
+        app.router.routes.append(Route(route.path, endpoint=http))
     app.state.mcp = server
     app.state.mcp_oauth = provider
