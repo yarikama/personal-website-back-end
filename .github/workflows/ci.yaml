@@ -1,6 +1,12 @@
 name: CI
 
-on: [push, pull_request]
+# Pushes to main (which deploy) and pull requests. Not pushes to other
+# branches: a branch with a pull request would run everything twice, once
+# per event, for the same commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   lint:
