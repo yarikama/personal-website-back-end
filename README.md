@@ -1,6 +1,13 @@
 # Personal Website Back-End
 
 [![CI](https://github.com/yarikama/personal-website-back-end/actions/workflows/ci.yaml/badge.svg)](https://github.com/yarikama/personal-website-back-end/actions/workflows/ci.yaml)
+[![API](https://img.shields.io/website?url=https%3A%2F%2Fapi.yarikama.com%2Fhealth&label=api.yarikama.com&up_message=online&down_message=down)](https://api.yarikama.com/docs)
+[![codecov](https://codecov.io/gh/yarikama/personal-website-back-end/graph/badge.svg)](https://codecov.io/gh/yarikama/personal-website-back-end)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](pyproject.toml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
+[![Last commit](https://img.shields.io/github/last-commit/yarikama/personal-website-back-end)](https://github.com/yarikama/personal-website-back-end/commits/main)
 
 The API behind [yarikama.com](https://www.yarikama.com), Henry Hsu's personal website. It serves the projects and notes, answers visitors' questions about them with a self-hosted language model, and gives the author an editor with inline autocomplete from a second model.
 

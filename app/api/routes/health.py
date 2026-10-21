@@ -5,7 +5,8 @@ from fastapi import APIRouter
 router = APIRouter()
 
 
-@router.get("/health", include_in_schema=False)
+# HEAD too: uptime checks such as the README's status badge send HEAD.
+@router.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)
 async def health() -> dict[str, str]:
     """Report that the process is up and able to serve requests.
 

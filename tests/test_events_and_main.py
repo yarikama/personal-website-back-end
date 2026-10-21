@@ -44,6 +44,12 @@ def test_health_returns_ok():
     assert resp.json() == {"status": "ok"}
 
 
+def test_health_answers_head():
+    client = TestClient(get_application())
+
+    assert client.head("/health").status_code == 200
+
+
 def test_the_old_ml_predictor_is_gone():
     client = TestClient(get_application())
 

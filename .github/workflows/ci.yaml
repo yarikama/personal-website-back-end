@@ -68,10 +68,18 @@ jobs:
         run: uv sync --extra dev
       - name: Test
         # Fails below [tool.coverage.report] fail_under in pyproject.toml.
-        run: uv run pytest -v --cov
+        run: uv run pytest -v --cov --cov-report=term --cov-report=xml
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
           REDIS_TEST_URL: redis://localhost:6379/15
+      # One upload is enough for the README badge; it never fails the build.
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   image:
     needs: [lint, test]
