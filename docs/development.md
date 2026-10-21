@@ -49,7 +49,7 @@ make format     # fix what can be fixed
 
 **Redis tests.** The rate-limit tests run their Lua scripts in fakeredis by default. Set `REDIS_TEST_URL=redis://localhost:6379/15` to run them against a real Redis as well. That database is flushed.
 
-**CI.** [GitHub Actions](../.github/workflows/ci.yaml) runs Ruff, then the tests on Python 3.10, 3.11 and 3.12 against PostgreSQL and Redis service containers.
+**CI.** [GitHub Actions](../.github/workflows/ci.yaml) runs Ruff, then the tests on Python 3.10, 3.11 and 3.12 against PostgreSQL and Redis service containers, on every pull request and every push to `main`. A branch pushed without a pull request gets no run; open a (draft) pull request for one.
 
 ## Migrations
 
