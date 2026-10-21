@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 from fastapi import FastAPI
@@ -9,26 +10,31 @@ from mcp.server.auth.settings import (
 )
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.routing import Route
 
 from api.dependencies.redis import get_redis
 from core.config import API_PREFIX, MCP_ISSUER_URL
 from db.session import SessionLocal
-from mcp_server import lab_notes, projects
+from mcp_server import images, lab_notes, projects
 from services.mcp_oauth import WritingOAuth
 
 INSTRUCTIONS = (
     "The content of yarikama.com, the owner's personal site: lab notes "
-    "(technical essays in Markdown), and the projects on its works page with "
-    "their categories. Read the writing://guide resource before writing or "
-    "editing a note. Notes and projects are created unpublished; publish or "
-    "delete only when the owner asks."
+    "(technical essays in Markdown), the projects on its works page with "
+    "their categories, and the images both show. Read the writing://guide "
+    "resource before writing or editing a note. Notes and projects are "
+    "created unpublished; publish or delete only when the owner asks. To add "
+    "an image, use start_image_upload from Claude Code (a file on this "
+    "machine) or import_image_from_url from elsewhere."
 )
 
 
 def build(
-    provider: WritingOAuth, sessions: async_sessionmaker[AsyncSession]
+    provider: WritingOAuth,
+    sessions: async_sessionmaker[AsyncSession],
+    redis: Callable[[], Redis | None],
 ) -> MCPServer:
     issuer = MCP_ISSUER_URL.rstrip("/")
     server = MCPServer(
@@ -53,6 +59,7 @@ def build(
     )
     lab_notes.register(server, sessions)
     projects.register(server, sessions)
+    images.register(server, redis, upload_url=f"{issuer}{API_PREFIX}/v1/uploads")
     return server
 
 
@@ -77,7 +84,7 @@ def mount(
         consent_url=f"{issuer}{API_PREFIX}/v1/auth/mcp/consent",
         resource=f"{issuer}/mcp",
     )
-    server = build(provider, sessions)
+    server = build(provider, sessions, redis=lambda: get_redis(app))
     # Without this, the SDK only takes Host: localhost (its guard against DNS
     # rebinding, for servers on the owner's machine).
     security = TransportSecuritySettings(

@@ -7,7 +7,8 @@ from services.images import MAX_UPLOAD_BYTES
 
 # Uploads are images. Everything else is JSON: a whole note, or the text
 # before the cursor that autocomplete reads, fits many times over in 2 MB.
-UPLOAD_PATHS = (f"{API_PREFIX}/v1/admin/upload/",)
+# The admin's uploads, and Claude Code's with an upload token (routes/upload.py).
+UPLOAD_PATHS = (f"{API_PREFIX}/v1/admin/upload/", f"{API_PREFIX}/v1/uploads")
 MAX_BODY_BYTES = 2 * 1024 * 1024
 
 

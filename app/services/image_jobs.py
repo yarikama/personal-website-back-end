@@ -8,6 +8,7 @@ from typing import Protocol, cast
 
 from loguru import logger
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from services.images import WIDTHS, is_original, make_variants, variant_key
 from services.jobs import Entry, dead_letter_stream, enqueue
@@ -25,6 +26,20 @@ class Storage(Protocol):
 async def enqueue_variants(redis: Redis, key: str) -> None:
     if is_original(key):
         await enqueue(redis, STREAM, {"key": key})
+
+
+async def queue_variants(redis: Redis | None, key: str) -> None:
+    """
+    Asks the worker for an uploaded image's WebP variants. Never fails the
+    upload: without Redis, or if queuing fails, the worker's hourly
+    reconcile finds the image anyway.
+    """
+    if redis is None:
+        return
+    try:
+        await enqueue_variants(redis, key)
+    except (RedisError, OSError) as error:
+        logger.warning(f"Could not queue variants for {key}: {error!r}")
 
 
 async def make_and_store_variants(storage: Storage, key: str) -> None:

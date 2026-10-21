@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import aioboto3
 from aiobotocore.config import AioConfig
-from fastapi import UploadFile
+from starlette.datastructures import UploadFile
 
 from core import config
 from services.images import (
@@ -64,9 +64,13 @@ class R2StorageService:
         what it is (services/images.identify_upload); the file name and the
         type the browser sent are ignored.
         """
+        return await self.upload_bytes(await file.read(MAX_UPLOAD_BYTES + 1), folder)
+
+    async def upload_bytes(self, data: bytes, folder: str = "images") -> str:
+        """upload_image's work, for bytes from anywhere (the MCP server
+        fetches some from a URL)."""
         if folder not in UPLOAD_FOLDERS:
             raise UploadRefusedError(f"Unknown folder: {folder[:40]}")
-        data = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(data) > MAX_UPLOAD_BYTES:
             raise UploadTooLargeError("Image too large (over 20 MB).")
         try:
