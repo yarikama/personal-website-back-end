@@ -1,10 +1,10 @@
 # Architecture
 
-![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](architecture.png)
+![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](architecture.svg)
 
 The two models share one 8 GB laptop GPU, through Kubernetes time-slicing with a fixed memory budget for each. The cluster is managed with GitOps (Argo CD). Its manifests and runbooks live in a separate, private `homelab` repo. References in these docs to "homelab `docs/…`" point there.
 
-The diagram is code: edit [`architecture.py`](architecture.py) and run `uv run --extra docs python docs/architecture.py` (needs Graphviz). It uses [mingrammer/diagrams](https://github.com/mingrammer/diagrams) and the vLLM logo from the vLLM project.
+The diagram is a hand-written SVG: edit [`architecture.svg`](architecture.svg) directly. Its colors are CSS variables at the top of the file, redefined under `prefers-color-scheme: dark`, so it follows the reader's light or dark mode.
 
 ## Tech stack
 
