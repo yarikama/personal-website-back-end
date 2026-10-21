@@ -17,13 +17,14 @@ the MCP client with an authorization code instead of starting a session.
 import re
 import secrets
 from datetime import datetime, timezone
-from html import escape
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Form, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
+from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
@@ -52,6 +53,12 @@ CONSENT_COOKIE = "__Host-mcp_consent"
 CONSENT_CSP = (
     "default-src 'none'; style-src 'unsafe-inline'; "
     "form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
+)
+# Escaping on for every template, whatever its file is called, rather than
+# by extension: the consent page shows what a client chose to call itself.
+TEMPLATES = Environment(
+    loader=FileSystemLoader(Path(__file__).resolve().parents[2] / "templates"),
+    autoescape=True,
 )
 
 
@@ -181,45 +188,20 @@ def consent_page(
     id: str,
     token: str,
 ) -> str:
-    """The consent page. Everything the client chose (its name) is escaped."""
-    name = escape(client.client_name or "An unnamed client")
-    goes_to = escape(str(params.redirect_uri))
+    """The consent page, templates/mcp_consent.html."""
     issued = client.client_id_issued_at
     registered = (
         datetime.fromtimestamp(issued, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         if issued
         else "at an unknown time"
     )
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect to yarikama.com</title>
-<style>
-body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 32rem;
-  margin: 3rem auto; padding: 0 1rem; color: #1c1c1e; }}
-code {{ word-break: break-all; }}
-button {{ font: inherit; padding: .5rem 1.25rem; margin-right: .5rem; }}
-</style>
-</head>
-<body>
-<h1>Connect {name}?</h1>
-<p>It will read, write, publish and delete the lab notes on yarikama.com,
-as you.</p>
-<p>It registered {registered}, and the sign-in goes back to
-<code>{goes_to}</code>.</p>
-<p><strong>Only allow it if you have just asked Claude to connect.</strong>
-If someone sent you this link, deny it.</p>
-<form method="post">
-<input type="hidden" name="mcp" value="{escape(id)}">
-<input type="hidden" name="token" value="{escape(token)}">
-<button name="decision" value="allow">Allow and sign in with Google</button>
-<button name="decision" value="deny">Deny</button>
-</form>
-</body>
-</html>
-"""
+    return TEMPLATES.get_template("mcp_consent.html").render(
+        name=client.client_name or "An unnamed client",
+        registered=registered,
+        goes_to=str(params.redirect_uri),
+        id=id,
+        token=token,
+    )
 
 
 def mcp_provider(request: Request) -> mcp_oauth.WritingOAuth | None:
