@@ -10,6 +10,7 @@ data across restarts: a restart signs the owner out.
 
 import hashlib
 import secrets
+from typing import cast
 
 from redis.asyncio import Redis
 
@@ -30,10 +31,9 @@ async def create(redis: Redis, email: str, ttl_seconds: int) -> str:
 async def lookup(redis: Redis, token: str) -> str | None:
     """The signed-in account's email, or None if the session is unknown or
     expired. Redis errors propagate: the caller decides how to fail."""
-    email = await redis.get(key(token))
-    if email is None:
-        return None
-    return email.decode() if isinstance(email, bytes) else email
+    # str: core.events.connect_redis decodes replies, which redis-py's
+    # types cannot tell.
+    return cast(str | None, await redis.get(key(token)))
 
 
 async def delete(redis: Redis, token: str) -> None:

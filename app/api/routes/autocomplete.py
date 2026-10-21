@@ -1,9 +1,9 @@
-import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response
+from loguru import logger
 
 from api.dependencies import CurrentAdmin
 from core import config
@@ -15,8 +15,6 @@ from schemas.autocomplete import (
     SuggestionFeedback,
 )
 from services import autocomplete
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -41,7 +39,7 @@ async def complete(request: CompletionRequest, _admin: CurrentAdmin):
             prompt.text, config.AUTOCOMPLETE_MIN_TOKEN_PROB
         )
     except (httpx.HTTPError, KeyError, IndexError, ValueError) as err:
-        logger.warning("autocomplete request failed: %s", err)
+        logger.warning(f"Autocomplete request failed: {err!r}")
         return empty
 
     suggestion = autocomplete.shape_suggestion(

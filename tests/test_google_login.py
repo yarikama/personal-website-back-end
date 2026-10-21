@@ -178,7 +178,7 @@ async def test_the_session_is_kept_hashed_in_redis(client, token_endpoint, redis
     await sign_in(client)
     token = client.cookies[admin_session.COOKIE]
 
-    keys = [k.decode() for k in await redis.keys("admin:session:*")]
+    keys = await redis.keys("admin:session:*")
     assert keys == [admin_session.key(token)]
     assert token not in keys[0]
     assert 0 < await redis.ttl(keys[0]) <= config.ADMIN_SESSION_HOURS * 3600

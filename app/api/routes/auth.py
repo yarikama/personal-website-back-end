@@ -30,6 +30,7 @@ from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 
 from api.dependencies.auth import CurrentAdmin
+from api.dependencies.redis import get_redis
 from core import config
 from schemas.auth import AdminResponse
 from services import admin_session, google_oauth, mcp_oauth
@@ -89,7 +90,7 @@ async def google_login(
     request: Request, next: str | None = None, mcp: str | None = None
 ) -> Response:
     client = google_client()
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     if client is None or redis is None:
         logger.error(
             "Google sign-in is off: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, "
@@ -124,7 +125,7 @@ async def google_callback(
     error: str | None = None,
 ) -> Response:
     client = google_client()
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     if client is None or redis is None:
         return to_login_page("not_configured")
     if error:
@@ -292,7 +293,7 @@ async def me(admin: CurrentAdmin) -> AdminResponse:
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(request: Request) -> Response:
     token = request.cookies.get(admin_session.COOKIE)
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     if token and redis is not None:
         try:
             await admin_session.delete(redis, token)

@@ -15,8 +15,11 @@ def connect_redis(url: str, socket_timeout: float = 0.25) -> Redis:
     # Redis answers in well under a millisecond in the cluster. Short
     # timeouts keep a hung Redis from holding requests: the check fails and
     # the rule's fail-open or fail-closed choice decides instead.
+    # decode_responses: everything kept in Redis is text (emails, JSON, job
+    # fields), so replies come back as str rather than bytes.
     return Redis.from_url(
         url,
+        decode_responses=True,
         socket_timeout=socket_timeout,
         socket_connect_timeout=0.25,
         health_check_interval=30,

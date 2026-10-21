@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from loguru import logger
 
+from api.dependencies.redis import get_redis
 from core import config
 from services import admin_session
 
@@ -22,7 +23,7 @@ async def session_admin(request: Request) -> str | None:
     Raises 503 if Redis cannot be reached: the session can't be checked.
     """
     token = request.cookies.get(admin_session.COOKIE)
-    redis = getattr(request.app.state, "redis", None)
+    redis = get_redis(request.app)
     if not token or redis is None:
         return None
     try:

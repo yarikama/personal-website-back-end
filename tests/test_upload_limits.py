@@ -2,15 +2,20 @@ import io
 from contextlib import asynccontextmanager
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from PIL import Image
 from starlette.datastructures import Headers
 
 from api import body_limit
+from api.dependencies.auth import get_current_admin
 from main import get_application
 from services import images
-from services.storage import R2StorageService
+from services.storage import (
+    R2StorageService,
+    UploadRefusedError,
+    UploadTooLargeError,
+)
 
 client = TestClient(get_application())
 
@@ -130,20 +135,17 @@ async def test_a_misnamed_image_is_stored_as_what_it_is(storage):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "data, folder, status",
+    "data, folder",
     [
-        (b"not an image", "notes", 400),
-        (image_bytes("PNG"), "../backups", 400),
-        (image_bytes("PNG"), "anything", 400),
+        (b"not an image", "notes"),
+        (image_bytes("PNG"), "../backups"),
+        (image_bytes("PNG"), "anything"),
     ],
 )
-async def test_non_images_and_unknown_folders_are_refused(
-    storage, data, folder, status
-):
+async def test_non_images_and_unknown_folders_are_refused(storage, data, folder):
     service, stored = storage
-    with pytest.raises(HTTPException) as refused:
+    with pytest.raises(UploadRefusedError):
         await service.upload_image(upload(data, "x.png", "image/png"), folder)
-    assert refused.value.status_code == status
     assert stored == []
 
 
@@ -151,9 +153,33 @@ async def test_non_images_and_unknown_folders_are_refused(
 async def test_an_image_over_the_limit_is_refused(storage, monkeypatch):
     service, stored = storage
     monkeypatch.setattr("services.storage.MAX_UPLOAD_BYTES", 10)
-    with pytest.raises(HTTPException) as refused:
+    with pytest.raises(UploadTooLargeError):
         await service.upload_image(
             upload(image_bytes("PNG"), "x.png", "image/png"), "notes"
         )
-    assert refused.value.status_code == 413
     assert stored == []
+
+
+@pytest.mark.parametrize(
+    "data, folder, status, detail",
+    [
+        (b"not an image", "notes", 400, "Not a JPEG, PNG, GIF or WebP image."),
+        (image_bytes("PNG"), "anything", 400, "Unknown folder: anything"),
+        (image_bytes("PNG") * 2, "notes", 413, "Image too large (over 20 MB)."),
+    ],
+)
+def test_the_route_answers_a_refused_upload_with_its_status(
+    monkeypatch, data, folder, status, detail
+):
+    # Under the request body limit, over the stored image's.
+    monkeypatch.setattr("services.storage.MAX_UPLOAD_BYTES", len(image_bytes("PNG")))
+    app = get_application()
+    app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
+
+    response = TestClient(app).post(
+        f"/api/v1/admin/upload/image?folder={folder}",
+        files={"file": ("x.png", data, "image/png")},
+    )
+
+    assert response.status_code == status
+    assert response.json() == {"detail": detail}
