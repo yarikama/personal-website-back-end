@@ -13,6 +13,8 @@ The API behind [yarikama.com](https://www.yarikama.com), Henry Hsu's personal we
 
 It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on a home server, together with its database, Redis, both models and the monitoring stack, and is reached through a Cloudflare Tunnel. The front end is [personal-website-front-end](https://github.com/yarikama/personal-website-front-end).
 
+[![The home page of yarikama.com: name, tagline and awards beside a photo, with the ask chat button in the corner](docs/home.webp)](https://www.yarikama.com)
+
 ## What it does
 
 - **Content API**: projects, notes and categories, cached at the edge, plus a contact form that emails the owner.
