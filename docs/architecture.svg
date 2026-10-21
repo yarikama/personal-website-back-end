@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1450 820" width="1450" height="820" role="img" aria-labelledby="title desc">
+  <title id="title">yarikama.com — backend architecture</title>
+  <desc id="desc">Visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models sharing one GPU. Images and database backups go to Cloudflare R2. GitHub Actions builds the image and Argo CD deploys it from the homelab repo.</desc>
+  <!-- Hand-written; edit the coordinates directly. Colors are the tokens below, redefined for dark mode. -->
+  <style>
+    svg {
+      --bg: #ffffff; --panel: #f6f8fa; --card: #ffffff; --line: #d0d7de;
+      --ink: #1f2328; --muted: #59636e;
+      --req: #2f7d73; --data: #8c959f; --del: #8250df;
+      --llm: #eaf4f2; --llm-line: #a9cdc6; --gpu: #d3e9e4;
+      --mon: #fbf4e2; --mon-line: #e2cd92;
+      --ops: #f4f0fc; --ops-line: #cdbff0;
+    }
+    @media (prefers-color-scheme: dark) {
+      svg {
+        --bg: #0d1117; --panel: #151b23; --card: #0d1117; --line: #3d444d;
+        --ink: #e6edf3; --muted: #9198a1;
+        --req: #4fb8a8; --data: #6e7681; --del: #b39dfa;
+        --llm: #0f2420; --llm-line: #2f5e56; --gpu: #183a34;
+        --mon: #241f12; --mon-line: #6b5826;
+        --ops: #1c1830; --ops-line: #4c4180;
+      }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: var(--ink); }
+    .bg { fill: var(--bg); }
+    .home { fill: var(--panel); stroke: var(--line); }
+    .ns { fill: var(--bg); stroke: var(--line); }
+    .ns-llm { fill: var(--llm); stroke: var(--llm-line); }
+    .ns-mon { fill: var(--mon); stroke: var(--mon-line); }
+    .ns-ops { fill: var(--ops); stroke: var(--ops-line); }
+    .gpu { fill: var(--gpu); }
+    .card { fill: var(--card); stroke: var(--line); }
+    .key { stroke: var(--req); stroke-width: 1.6; }
+    .title { font-size: 20px; font-weight: 600; }
+    .sub { font-size: 13px; fill: var(--muted); }
+    .h { font-size: 12px; font-weight: 600; }
+    .hm { font-size: 12px; fill: var(--muted); }
+    .t { font-size: 13px; font-weight: 600; text-anchor: middle; }
+    .s { font-size: 11px; fill: var(--muted); text-anchor: middle; }
+    .lbl { font-size: 11px; fill: var(--muted); text-anchor: middle; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+    .e { fill: none; stroke-width: 1.6; stroke-linejoin: round; }
+    .req { stroke: var(--req); }
+    .data { stroke: var(--data); stroke-width: 1.3; }
+    .del { stroke: var(--del); }
+    .dot { stroke: var(--data); stroke-width: 1.3; stroke-dasharray: 2 4; }
+    .ah-req { fill: var(--req); }
+    .ah-data { fill: var(--data); }
+    .ah-del { fill: var(--del); }
+  </style>
+  <defs>
+    <marker id="a-req" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-req" d="M0 0 L10 5 L0 10 z"/></marker>
+    <marker id="a-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-data" d="M0 0 L10 5 L0 10 z"/></marker>
+    <marker id="a-del" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-del" d="M0 0 L10 5 L0 10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1450" height="820"/>
+
+  <!-- Heading and legend -->
+  <text class="title" x="32" y="44">yarikama.com — backend architecture</text>
+  <text class="sub" x="32" y="68">How a visitor's request reaches the home cluster, and how a merge reaches production</text>
+  <g transform="translate(1080 40)">
+    <path class="e req" d="M0 0 H28" marker-end="url(#a-req)"/><text class="hm" x="36" y="4">request</text>
+    <path class="e data" d="M104 0 H132" marker-end="url(#a-data)"/><text class="hm" x="140" y="4">data</text>
+    <path class="e del" d="M190 0 H218" marker-end="url(#a-del)"/><text class="hm" x="226" y="4">delivery</text>
+  </g>
+
+  <!-- Outside the cluster -->
+  <rect class="card" x="32" y="380" width="130" height="60" rx="10"/>
+  <text class="t" x="97" y="407">Visitors</text>
+  <text class="s" x="97" y="424">browser</text>
+
+  <rect class="card" x="232" y="250" width="200" height="64" rx="10"/>
+  <text class="t" x="332" y="277">www.yarikama.com</text>
+  <text class="s" x="332" y="295">React SPA on Vercel</text>
+
+  <rect class="card" x="232" y="372" width="200" height="76" rx="10"/>
+  <text class="t" x="332" y="400">api.yarikama.com</text>
+  <text class="s" x="332" y="418">Cloudflare edge cache</text>
+  <text class="s" x="332" y="433">Tunnel, no open ports</text>
+
+  <rect class="card" x="1286" y="400" width="140" height="76" rx="10"/>
+  <text class="t" x="1356" y="428">Cloudflare R2</text>
+  <text class="s" x="1356" y="446">images · variants</text>
+  <text class="s" x="1356" y="461">DB backups</text>
+
+  <!-- Home server -->
+  <rect class="home" x="480" y="96" width="780" height="704" rx="14"/>
+  <text class="h" x="500" y="122">Home server · single-node k3s</text>
+  <text class="hm" x="1240" y="122" text-anchor="end">reached only through the tunnel</text>
+
+  <rect class="card" x="504" y="372" width="150" height="76" rx="10"/>
+  <text class="t" x="579" y="400">cloudflared</text>
+  <text class="s" x="579" y="418">→ Traefik ingress</text>
+  <text class="s" x="579" y="433">/api/v1/ask apart</text>
+
+  <!-- namespace llm -->
+  <rect class="ns-llm" x="680" y="140" width="556" height="140" rx="12"/>
+  <text class="h" x="700" y="162">llm</text>
+  <text class="hm" x="724" y="162">· two models, one GPU</text>
+  <rect class="gpu" x="700" y="174" width="516" height="24" rx="6"/>
+  <text class="s" x="958" y="190">RTX 4060 Laptop · 8 GB · time-sliced, a fixed memory budget per model</text>
+  <rect class="card" x="700" y="210" width="250" height="56" rx="10"/>
+  <text class="t" x="825" y="234">vLLM · Qwen3.5-4B AWQ</text>
+  <text class="s" x="825" y="251">ask chat · 24k context</text>
+  <rect class="card" x="966" y="210" width="250" height="56" rx="10"/>
+  <text class="t" x="1091" y="234">vLLM · Qwen3.5-0.8B-Base</text>
+  <text class="s" x="1091" y="251">note autocomplete</text>
+
+  <!-- namespace website -->
+  <rect class="ns" x="680" y="300" width="556" height="230" rx="12"/>
+  <text class="h" x="700" y="322">website</text>
+
+  <rect class="card key" x="720" y="345" width="180" height="130" rx="10"/>
+  <text class="t" x="810" y="375">FastAPI API</text>
+  <text class="s" x="810" y="397">ask chat · SSE</text>
+  <text class="s" x="810" y="413">note autocomplete</text>
+  <text class="s" x="810" y="429">content · contact</text>
+  <text class="s" x="810" y="445">admin · Google sign-in</text>
+  <text class="s" x="810" y="461">rate limits</text>
+
+  <rect class="card" x="944" y="330" width="130" height="72" rx="10"/>
+  <text class="t" x="1009" y="357">Redis</text>
+  <text class="s" x="1009" y="375">rate limits · jobs</text>
+  <text class="s" x="1009" y="389">chat memory</text>
+
+  <rect class="card" x="944" y="430" width="130" height="72" rx="10"/>
+  <text class="t" x="1009" y="461">PostgreSQL 17</text>
+  <text class="s" x="1009" y="479">CloudNativePG</text>
+
+  <rect class="card" x="1104" y="330" width="112" height="72" rx="10"/>
+  <text class="t" x="1160" y="361">Image worker</text>
+  <text class="s" x="1160" y="379">WebP variants</text>
+
+  <!-- monitoring -->
+  <rect class="ns-mon" x="504" y="555" width="732" height="95" rx="12"/>
+  <text class="h" x="524" y="577">monitoring</text>
+  <text class="hm" x="596" y="577">· metrics, logs and traces from every pod · alerts by email</text>
+  <rect class="card" x="524" y="590" width="150" height="44" rx="8"/>
+  <text class="t" x="599" y="609">Prometheus</text>
+  <text class="s" x="599" y="624">metrics · alerts</text>
+  <rect class="card" x="690" y="590" width="110" height="44" rx="8"/>
+  <text class="t" x="745" y="609">Loki</text>
+  <text class="s" x="745" y="624">logs</text>
+  <rect class="card" x="816" y="590" width="110" height="44" rx="8"/>
+  <text class="t" x="871" y="609">Tempo</text>
+  <text class="s" x="871" y="624">traces</text>
+  <rect class="card" x="1000" y="590" width="130" height="44" rx="8"/>
+  <text class="t" x="1065" y="609">Grafana</text>
+  <text class="s" x="1065" y="624">reads all three</text>
+
+  <!-- gitops -->
+  <rect class="ns-ops" x="504" y="670" width="732" height="110" rx="12"/>
+  <text class="h" x="524" y="692">gitops</text>
+  <text class="hm" x="568" y="692">· the cluster is what Git says</text>
+  <rect class="card" x="524" y="706" width="170" height="52" rx="10"/>
+  <text class="t" x="609" y="728">Argo CD</text>
+  <text class="s" x="609" y="745">sync · self-heal</text>
+  <rect class="card" x="730" y="706" width="190" height="52" rx="10"/>
+  <text class="t" x="825" y="728">Sealed Secrets</text>
+  <text class="s" x="825" y="745">encrypted in Git</text>
+
+  <!-- GitHub -->
+  <rect class="ns" x="32" y="670" width="432" height="110" rx="12"/>
+  <text class="h" x="48" y="692">GitHub</text>
+  <text class="hm" x="100" y="692">· merging to main is the deploy</text>
+  <rect class="card" x="48" y="704" width="120" height="60" rx="10"/>
+  <text class="t" x="108" y="726">This repo</text>
+  <text class="s" x="108" y="742">back-end</text>
+  <rect class="card" x="192" y="704" width="120" height="60" rx="10"/>
+  <text class="t" x="252" y="726">Actions CI</text>
+  <text class="s" x="252" y="742">lint · test · build</text>
+  <text class="s" x="252" y="756">image → GHCR</text>
+  <rect class="card" x="336" y="704" width="120" height="60" rx="10"/>
+  <text class="t" x="396" y="726">homelab</text>
+  <text class="s" x="396" y="742">private repo</text>
+  <text class="s" x="396" y="756">manifests · tags</text>
+
+  <!-- Requests -->
+  <path class="e req" d="M97 380 V282 H226" marker-end="url(#a-req)"/>
+  <text class="lbl" x="160" y="276">site</text>
+  <path class="e req" d="M162 410 H226" marker-end="url(#a-req)"/>
+  <text class="lbl" x="195" y="403">API · SSE</text>
+  <path class="e req" d="M432 410 H498" marker-end="url(#a-req)"/>
+  <text class="lbl" x="466" y="403">Tunnel</text>
+  <path class="e req" d="M654 410 H714" marker-end="url(#a-req)"/>
+  <path class="e req" d="M780 345 V272" marker-end="url(#a-req)"/>
+  <text class="lbl" x="780" y="318">chat</text>
+  <path class="e req" d="M870 345 V290 H1091 V272" marker-end="url(#a-req)"/>
+  <text class="lbl" x="990" y="294">completions</text>
+  <path class="e req" d="M900 366 H938" marker-end="url(#a-req)"/>
+  <path class="e req" d="M900 466 H938" marker-end="url(#a-req)"/>
+  <text class="lbl" x="921" y="458">SQL</text>
+
+  <!-- Data -->
+  <path class="e data" d="M1074 366 H1098" marker-end="url(#a-data)"/>
+  <text class="lbl" x="1089" y="358">jobs</text>
+  <path class="e data" d="M1216 366 H1356 V394" marker-end="url(#a-data)"/>
+  <path class="e data" d="M1074 456 H1280" marker-end="url(#a-data)"/>
+  <text class="lbl" x="1170" y="449">WAL + daily backups</text>
+  <path class="e data" d="M810 475 V512 H1356 V482" marker-end="url(#a-data)"/>
+  <text class="lbl" x="1000" y="516">uploads</text>
+  <path class="e data" d="M926 612 H994" marker-end="url(#a-data)"/>
+
+  <!-- Delivery -->
+  <path class="e del" d="M168 734 H186" marker-end="url(#a-del)"/>
+  <path class="e del" d="M312 734 H330" marker-end="url(#a-del)"/>
+  <path class="e del" d="M456 732 H518" marker-end="url(#a-del)"/>
+  <text class="lbl" x="488" y="725">pull ≤ 3 min</text>
+  <path class="e dot" d="M694 732 H730"/>
+</svg>

@@ -14,7 +14,7 @@ It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on
 - **Images**: uploads go to Cloudflare R2. A background worker makes WebP variants of each image.
 - **Protection**: rate limits in Redis, a cap on concurrent answers, a daily limit on questions for the whole site, and an admin area behind Sign in with Google.
 
-![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](docs/architecture.png)
+![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](docs/architecture.svg)
 
 ## Quick start
 
