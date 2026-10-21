@@ -11,17 +11,22 @@ all deleted afterwards.
 import base64
 import datetime
 import hashlib
+import io
 import re
 import secrets
+import shlex
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 from loguru import logger
 from mcp.server.auth.provider import TokenError
+from PIL import Image
 from sqlalchemy import delete
 
 from core import config
@@ -32,9 +37,11 @@ from db.models.mcp_oauth import McpClient
 from db.models.projects import Project
 from main import get_application
 from mcp_server import server as mcp_server
-from services import google_oauth
+from services import google_oauth, remote_images, upload_tokens
 from services.content.lab_notes import read_time
+from services.image_jobs import STREAM, queue_variants
 from services.mcp_oauth import WritingOAuth, pending_key, redirect_allowed
+from services.storage import storage_service
 
 pytestmark = pytest.mark.anyio
 
@@ -1101,6 +1108,218 @@ async def test_a_category_with_projects_is_kept(tool):
         "delete_category", name_or_id=f"{PREFIX}empty", confirm_name=f"{PREFIX}empty"
     )
     assert done == f"Deleted the category 'Empty' ({PREFIX}empty)."
+
+
+# Images
+
+
+def png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "teal").save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def r2(monkeypatch):
+    """R2, as a list of what was stored and deleted."""
+    monkeypatch.setattr(storage_service, "public_url", "https://assets.test")
+    calls: dict[str, list[Any]] = {"put": [], "delete": []}
+
+    class FakeS3:
+        async def put_object(self, **kwargs):
+            calls["put"].append(kwargs)
+
+        async def delete_objects(self, **kwargs):
+            calls["delete"].append(kwargs)
+
+    @asynccontextmanager
+    async def fake_client():
+        yield FakeS3()
+
+    monkeypatch.setattr(storage_service, "_client", fake_client)
+    return calls
+
+
+async def upload_token(tool, folder="notes") -> tuple[str, str]:
+    """start_image_upload's command, and the token in it."""
+    started = await tool("start_image_upload", folder=folder)
+    assert "error" not in started, started
+    header = next(p for p in shlex.split(started["command"]) if p.startswith("Auth"))
+    return started["command"], header.removeprefix("Authorization: Bearer ")
+
+
+async def send(client, token, data=None, field="file"):
+    return await client.post(
+        "/api/v1/uploads",
+        headers={"Authorization": f"Bearer {token}"},
+        files={field: ("photo.png", data or png(), "image/png")},
+    )
+
+
+async def test_claude_code_uploads_a_file_with_a_token(client, tool, r2, redis):
+    command, token = await upload_token(tool, folder="covers")
+    assert command.endswith(" -F 'file=@PATH' https://test/api/v1/uploads")
+
+    sent = await send(client, token)
+    assert sent.status_code == 200, sent.text
+    url = sent.json()["data"]["url"]
+    assert url.startswith("https://assets.test/covers/") and url.endswith(".png")
+    assert r2["put"][0]["ContentType"] == "image/png"
+    # Its WebP variants are asked for.
+    assert await redis.xlen(STREAM) == 1
+    # Once only, and only its hash is kept.
+    assert (await send(client, token)).status_code == 401
+    assert await redis.get(upload_tokens.key(token)) is None
+
+
+@pytest.mark.parametrize("header", [None, "Bearer made-up", "Basic abc"])
+async def test_an_upload_needs_a_token(client, r2, header):
+    headers = {"Authorization": header} if header else {}
+    response = await client.post(
+        "/api/v1/uploads", headers=headers, files={"file": ("a.png", png())}
+    )
+    assert response.status_code == 401
+    assert r2["put"] == []
+
+
+async def test_a_token_of_an_account_removed_meanwhile_is_refused(
+    client, tool, r2, monkeypatch
+):
+    _, token = await upload_token(tool)
+    monkeypatch.setattr(config, "ADMIN_EMAILS", frozenset({"someone@example.com"}))
+    assert (await send(client, token)).status_code == 401
+
+
+async def test_an_upload_must_be_an_image_sent_as_file(client, tool, r2):
+    _, token = await upload_token(tool)
+    assert (await send(client, token, data=b"not an image")).status_code == 400
+    _, token = await upload_token(tool)
+    assert (await send(client, token, field="other")).status_code == 400
+    assert r2["put"] == []
+
+
+async def test_without_redis_there_are_no_uploads(app, client):
+    # (Nor MCP sign-in, so no tool to hand out a token.)
+    app.state.redis = None
+    response = await client.post("/api/v1/uploads", files={"file": ("a.png", png())})
+    assert response.status_code == 503
+
+
+async def test_an_upload_over_the_limit_is_refused(client, tool, r2, monkeypatch):
+    _, token = await upload_token(tool)
+    monkeypatch.setattr("services.storage.MAX_UPLOAD_BYTES", 10)
+    assert (await send(client, token)).status_code == 413
+    assert r2["put"] == []
+
+
+async def test_queuing_variants_never_fails_an_upload(redis):
+    class Down:
+        async def xadd(self, *args, **kwargs):
+            raise ConnectionError("redis is down")
+
+    lines: list[str] = []
+    sink = logger.add(lambda message: lines.append(str(message)), level="WARNING")
+    try:
+        await queue_variants(None, "notes/20261021/a.png")
+        await queue_variants(Down(), "notes/20261021/a.png")  # type: ignore[arg-type]
+    finally:
+        logger.remove(sink)
+    assert any("Could not queue variants for notes/20261021/a.png" in x for x in lines)
+
+
+def web(monkeypatch, handler):
+    """The internet, as `handler`, behind a public address."""
+
+    async def public(host):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(remote_images, "public_addresses", public)
+    monkeypatch.setattr(
+        remote_images,
+        "client",
+        lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+async def test_claude_ai_imports_an_image_from_the_web(tool, r2, monkeypatch):
+    web(monkeypatch, lambda request: httpx.Response(200, content=png()))
+    imported = await tool(
+        "import_image_from_url", url="https://example.com/a.png", folder="notes"
+    )
+    assert imported["url"].startswith("https://assets.test/notes/")
+    assert imported["markdown"] == f"![]({imported['url']})"
+    assert len(r2["put"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("url", "refusal"),
+    [
+        ("http://example.com/a.png", "Only https://"),
+        ("https://example.com:8443/a.png", "port (443)"),
+        ("https://user:pw@example.com/a.png", "credentials"),
+        ("https://example.com:x/a.png", "not a number"),
+        ("file:///etc/passwd", "Only https://"),
+    ],
+)
+async def test_only_plain_https_urls_are_fetched(tool, r2, url, refusal):
+    refused = await tool("import_image_from_url", url=url)
+    assert refusal in refused["error"]
+    assert r2["put"] == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "refusal"),
+    [
+        (httpx.Response(302, headers={"location": "https://10.0.0.1/"}), "redirects"),
+        (httpx.Response(404), "answered 404"),
+        (httpx.Response(200, content=b"<html>"), "Not a JPEG"),
+    ],
+)
+async def test_what_comes_back_must_be_an_image(tool, r2, monkeypatch, answer, refusal):
+    web(monkeypatch, lambda request: answer)
+    refused = await tool("import_image_from_url", url="https://example.com/a.png")
+    assert refusal in refused["error"]
+    assert r2["put"] == []
+
+
+async def test_a_fetched_image_stops_at_the_limit(tool, r2, monkeypatch):
+    monkeypatch.setattr(remote_images, "MAX_UPLOAD_BYTES", 10)
+    web(monkeypatch, lambda request: httpx.Response(200, content=png()))
+    refused = await tool("import_image_from_url", url="https://example.com/a.png")
+    assert "too large" in refused["error"]
+
+
+async def test_a_fetch_that_fails_is_an_error_claude_can_read(tool, r2, monkeypatch):
+    def unreachable(request):
+        raise httpx.ConnectError("no route")
+
+    web(monkeypatch, unreachable)
+    refused = await tool("import_image_from_url", url="https://example.com/a.png")
+    assert "Could not fetch" in refused["error"]
+
+
+@pytest.mark.parametrize("host", ["localhost", "10.0.0.1", "169.254.169.254", "::1"])
+async def test_only_public_addresses_are_fetched(host):
+    with pytest.raises(remote_images.RemoteImageError, match="not on the public"):
+        await remote_images.public_addresses(host)
+
+
+async def test_a_name_that_does_not_resolve_is_refused():
+    with pytest.raises(remote_images.RemoteImageError, match="Cannot resolve"):
+        await remote_images.public_addresses("does-not-exist.invalid")
+
+
+async def test_a_public_name_resolves():
+    assert await remote_images.public_addresses("1.1.1.1") == ["1.1.1.1"]
+
+
+async def test_only_the_sites_own_images_are_deleted(tool, r2):
+    refused = await tool("delete_image", url="https://elsewhere.example/a.png")
+    assert "not in the site's storage" in refused["error"]
+    done = await tool("delete_image", url="https://assets.test/notes/20261021/a.png")
+    assert done.startswith("Deleted https://assets.test/notes/20261021/a.png")
+    keys = [o["Key"] for o in r2["delete"][0]["Delete"]["Objects"]]
+    assert keys[0] == "notes/20261021/a.png" and len(keys) == 3
 
 
 # Read time
