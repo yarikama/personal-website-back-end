@@ -321,3 +321,56 @@ async def test_redis_down_means_unavailable_not_signed_in(client, app):
         "/api/v1/auth/me", headers={"Cookie": f"{admin_session.COOKIE}=anything"}
     )
     assert me.status_code == 503
+
+
+async def test_redis_down_at_the_start_means_unavailable(client, monkeypatch):
+    async def down(*args, **kwargs):
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(google_oauth, "start", down)
+    response = await client.get("/api/v1/auth/google/login")
+    assert login_error(response) == "unavailable"
+
+
+async def test_a_callback_without_configuration_goes_back_to_the_login_page(
+    client, token_endpoint, monkeypatch
+):
+    _, query = await start(client)
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_SECRET", "")
+    response = await client.get(
+        "/api/v1/auth/google/callback",
+        params={"code": "the-code", "state": query["state"][0]},
+    )
+    assert login_error(response) == "not_configured"
+
+
+async def test_a_failure_while_finishing_means_unavailable(
+    client, token_endpoint, monkeypatch
+):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("Google answered something unexpected")
+
+    monkeypatch.setattr(google_oauth, "exchange_code", broken)
+    response = await sign_in(client)
+    assert login_error(response) == "unavailable"
+    assert admin_session.COOKIE not in client.cookies
+
+
+async def test_signing_out_clears_the_cookie_even_if_redis_is_down(
+    client, token_endpoint, app
+):
+    await sign_in(client)
+
+    class Down:
+        async def delete(self, key):
+            raise ConnectionError("redis is down")
+
+    app.state.redis = Down()
+    response = await client.post("/api/v1/auth/logout")
+    assert response.status_code == 204
+    assert admin_session.COOKIE not in client.cookies
+
+
+async def test_signing_out_without_a_session_is_fine(client):
+    response = await client.post("/api/v1/auth/logout")
+    assert response.status_code == 204
