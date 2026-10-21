@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect to yarikama.com</title>
+<style>
+body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem;
+  margin: 3rem auto; padding: 0 1rem; color: #1c1c1e; }
+code { word-break: break-all; }
+button { font: inherit; padding: .5rem 1.25rem; margin-right: .5rem; }
+</style>
+</head>
+<body>
+<h1>Connect {{ name }}?</h1>
+<p>It will read, write, publish and delete the lab notes on yarikama.com,
+as you.</p>
+<p>It registered {{ registered }}, and the sign-in goes back to
+<code>{{ goes_to }}</code>.</p>
+<p><strong>Only allow it if you have just asked Claude to connect.</strong>
+If someone sent you this link, deny it.</p>
+<form method="post">
+<input type="hidden" name="mcp" value="{{ id }}">
+<input type="hidden" name="token" value="{{ token }}">
+<button name="decision" value="allow">Allow and sign in with Google</button>
+<button name="decision" value="deny">Deny</button>
+</form>
+</body>
+</html>
