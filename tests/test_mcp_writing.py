@@ -26,6 +26,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from loguru import logger
 from mcp.server.auth.provider import TokenError
+from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image
 from sqlalchemy import delete
 
@@ -1025,6 +1026,8 @@ async def test_a_project_update_changes_only_the_fields_given(tool):
     assert moved["category"]["name"] == f"{PREFIX}second"
     assert moved["metrics"] == "10× less compute · 0.43 ms per image"
     assert moved["title"] == project["title"]
+    retitled = await tool("update_project", id_or_slug=project["slug"], title="New")
+    assert retitled["category"]["name"] == f"{PREFIX}second"
     nothing = await tool("update_project", id_or_slug=project["slug"])
     assert "Nothing to change" in nothing["error"]
 
@@ -1225,6 +1228,20 @@ async def test_queuing_variants_never_fails_an_upload(redis):
     finally:
         logger.remove(sink)
     assert any("Could not queue variants for notes/20261021/a.png" in x for x in lines)
+
+
+async def test_without_redis_no_upload_token_is_made(app, async_sessions):
+    # Over HTTP, signing in needs Redis before any tool runs; in process, the
+    # tool says so itself.
+    server = mcp_server.build(app.state.mcp_oauth, async_sessions, redis=lambda: None)
+    with pytest.raises(ToolError, match="no Redis"):
+        await server.call_tool("start_image_upload", {})
+
+
+def test_the_fetching_client_follows_no_redirects():
+    http = remote_images.client()
+    assert http.follow_redirects is False
+    assert http.timeout.read == remote_images.TIMEOUT_SECONDS
 
 
 def web(monkeypatch, handler):
