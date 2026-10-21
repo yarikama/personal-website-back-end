@@ -30,7 +30,7 @@ async def get_all_projects_admin(
     """Admin endpoint: Get all projects including unpublished."""
     return await projects.page(
         db,
-        published_only=False,
+        published=None,
         category_id=category_id,
         featured=featured,
         tag=tag,
@@ -80,7 +80,7 @@ async def get_projects(
     """Public endpoint: Get only published projects."""
     return await projects.page(
         db,
-        published_only=True,
+        published=True,
         category_id=category_id,
         featured=featured,
         tag=tag,

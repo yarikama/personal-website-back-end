@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.paginator import count
 from db.models.category import Category
 from db.models.projects import Project
-from db.rows import ConflictError, ensure_unique, get_or_raise
+from db.rows import ConflictError, NotFoundError, ensure_unique, get_or_raise
 from schemas.category import (
     CategoryCreate,
     CategoryResponse,
@@ -22,6 +22,17 @@ async def all_categories(db: AsyncSession) -> list[Category]:
     return list(
         await db.scalars(select(Category).order_by(Category.order, Category.label))
     )
+
+
+async def get(db: AsyncSession, id: UUID) -> Category:
+    return await get_or_raise(db, Category, id, WHAT)
+
+
+async def get_by_name(db: AsyncSession, name: str) -> Category:
+    category = await db.scalar(select(Category).where(Category.name == name))
+    if category is None:
+        raise NotFoundError(f"Category '{name}' not found")
+    return category
 
 
 async def with_counts(db: AsyncSession) -> list[CategoryWithCount]:

@@ -43,18 +43,18 @@ async def reload(db: AsyncSession, id: UUID) -> Project:
 async def page(
     db: AsyncSession,
     *,
-    published_only: bool,
+    published: bool | None,
     category_id: UUID | None,
     featured: bool | None,
     tag: str | None,
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
-    """A page of projects, filtered as the works page asks; unpublished ones
-    too unless `published_only`."""
+    """A page of projects, filtered as the works page asks: only published
+    ones or only unpublished ones, or both if `published` is None."""
     query = select(Project)
-    if published_only:
-        query = query.where(Project.published.is_(True))
+    if published is not None:
+        query = query.where(Project.published.is_(published))
     if category_id:
         query = query.where(Project.category_id == category_id)
     if featured is not None:
@@ -63,6 +63,21 @@ async def page(
         query = query.where(Project.tags.contains([tag]))
     query = query.options(WITH_CATEGORY).order_by(*PROJECT_DISPLAY_ORDER)
     return await paginate(db, query, ProjectResponse, offset, limit)
+
+
+async def get(db: AsyncSession, id: UUID) -> Project:
+    """The project, published or not, with its category."""
+    return await reload(db, id)
+
+
+async def get_by_slug(db: AsyncSession, slug: str) -> Project:
+    """The project with this slug, published or not, with its category."""
+    project = await db.scalar(
+        select(Project).options(WITH_CATEGORY).where(Project.slug == slug)
+    )
+    if project is None:
+        raise NotFoundError(f"{WHAT} not found")
+    return project
 
 
 async def get_published(db: AsyncSession, slug: str) -> Project:
