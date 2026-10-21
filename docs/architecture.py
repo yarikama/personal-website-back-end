@@ -4,8 +4,11 @@ Draws docs/architecture.png: how the backend runs in production.
 Diagram as code with mingrammer/diagrams (needs Graphviz: brew install
 graphviz). Edit this file, then from the repo root:
 
-    uv run --with diagrams python docs/architecture.py
+    uv run --extra docs python docs/architecture.py
 """
+
+# `a >> b` draws an edge: the expressions are for their effect.
+# pyright: reportUnusedExpression=false
 
 from pathlib import Path
 
@@ -53,7 +56,7 @@ edge = {
 }
 
 
-def box(label: str, fill: str, line: str = "#d4d4d8") -> dict:
+def box(label: str, fill: str, line: str = "#d4d4d8") -> dict[str, str]:
     return {
         "label": label,
         "fontname": "Helvetica",
@@ -68,7 +71,9 @@ def box(label: str, fill: str, line: str = "#d4d4d8") -> dict:
 
 
 def flow(label: str = "", color: str = SAGE, style: str = "solid") -> Edge:
-    return Edge(label=label, color=color, fontcolor=color, style=style, penwidth="1.6")
+    # diagrams types each extra attribute as a Dict; Graphviz takes strings.
+    extra = {"fontcolor": color, "penwidth": "1.6"}
+    return Edge(label=label, color=color, style=style, **extra)  # pyright: ignore[reportArgumentType]
 
 
 with Diagram(
