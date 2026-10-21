@@ -1,7 +1,8 @@
+import re
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.paginator import paginate
@@ -11,22 +12,57 @@ from schemas.lab_notes import LabNoteCreate, LabNoteListResponse, LabNoteUpdate
 
 WHAT = "Lab note"
 
+# Reading speed for read_time: words of English, and characters of Chinese
+# or Japanese, which have no spaces to count words by. Of the seven notes
+# whose read time was set by hand, 175 words a minute (rounded) gives five
+# the same time and the other two one minute less.
+WORDS_PER_MINUTE = 175
+CJK_CHARACTERS_PER_MINUTE = 350
+WORD = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*")
+CJK_CHARACTER = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def read_time(content: str) -> str:
+    """How long `content` takes to read, as the notes show it: "6 min read"."""
+    minutes = (
+        len(WORD.findall(content)) / WORDS_PER_MINUTE
+        + len(CJK_CHARACTER.findall(content)) / CJK_CHARACTERS_PER_MINUTE
+    )
+    return f"{max(1, round(minutes))} min read"
+
+
+def contains(text: str) -> str:
+    """An ILIKE pattern for `text` anywhere, its own % and _ taken literally."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
 
 async def page(
     db: AsyncSession,
     *,
-    published_only: bool,
+    published: bool | None,
     tag: str | None,
     limit: int,
     offset: int,
+    search: str | None = None,
 ) -> dict[str, Any]:
-    """A page of notes, newest first, optionally only one tag's; drafts too
-    unless `published_only`."""
+    """A page of notes, newest first: only published ones or only drafts, or
+    both if `published` is None; optionally only one tag's, or those with
+    `search` in their title, excerpt or body (ignoring case)."""
     query = select(LabNote)
-    if published_only:
-        query = query.where(LabNote.published.is_(True))
+    if published is not None:
+        query = query.where(LabNote.published.is_(published))
     if tag:
         query = query.where(LabNote.tags.contains([tag]))
+    if search:
+        pattern = contains(search)
+        query = query.where(
+            or_(
+                LabNote.title.ilike(pattern, escape="\\"),
+                LabNote.excerpt.ilike(pattern, escape="\\"),
+                LabNote.content.ilike(pattern, escape="\\"),
+            )
+        )
     query = query.order_by(LabNote.date.desc())
     return await paginate(db, query, LabNoteListResponse, offset, limit)
 
@@ -34,6 +70,14 @@ async def page(
 async def get(db: AsyncSession, id: UUID) -> LabNote:
     """The note, draft or not."""
     return await get_or_raise(db, LabNote, id, WHAT)
+
+
+async def get_by_slug(db: AsyncSession, slug: str) -> LabNote:
+    """The note with this slug, draft or not."""
+    note = await db.scalar(select(LabNote).where(LabNote.slug == slug))
+    if note is None:
+        raise NotFoundError(f"{WHAT} not found")
+    return note
 
 
 async def get_published(db: AsyncSession, slug: str) -> LabNote:
@@ -47,13 +91,15 @@ async def get_published(db: AsyncSession, slug: str) -> LabNote:
     return note
 
 
-async def tags(db: AsyncSession) -> list[dict[str, Any]]:
-    """Every tag of a published note with how many use it, most used first."""
-    tag = (
-        select(func.unnest(LabNote.tags).label("tag"))
-        .where(LabNote.published.is_(True))
-        .subquery()
-    )
+async def tags(
+    db: AsyncSession, *, published_only: bool = True
+) -> list[dict[str, Any]]:
+    """Every tag of a published note (or of any note, drafts too) with how
+    many use it, most used first."""
+    tag = select(func.unnest(LabNote.tags).label("tag"))
+    if published_only:
+        tag = tag.where(LabNote.published.is_(True))
+    tag = tag.subquery()
     rows = await db.execute(
         select(tag.c.tag, func.count(tag.c.tag).label("count"))
         .group_by(tag.c.tag)

@@ -29,3 +29,7 @@ Settings come from environment variables. Which env file is read locally is desc
 | `ASK_CONTEXT_TOKENS` | The answer model's context length (vLLM `--max-model-len`); the system prompt gets what the question and the answer leave | `16384` |
 | `ASK_MAX_CONCURRENT` | Answers generated at once; past this the API answers `503` right away | `4` |
 | `ASK_QUESTION_RETENTION_DAYS` | How long questions asked in the chat are kept in `ask_questions` | `30` |
+| `MCP_ENABLED` | Serve the writing MCP server at `/mcp`, and its OAuth endpoints | `False` |
+| `MCP_ISSUER_URL` | This API's public origin: the OAuth issuer, and the base of `/mcp` | `https://api.yarikama.com` |
+| `MCP_REDIRECT_URIS` | Comma-separated redirect URIs a client may register; `*` stands for a port | claude.ai's and claude.com's callbacks, `http://localhost:*/callback`, `http://127.0.0.1:*/callback` |
+| `MCP_ACCESS_TOKEN_MINUTES`, `MCP_REFRESH_TOKEN_DAYS` | How long MCP access and refresh tokens last | `60`, `30` |

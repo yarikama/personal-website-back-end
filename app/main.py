@@ -8,11 +8,19 @@ from api.middleware import PublicRateLimitMiddleware
 from api.routes.api import router as api_router
 from api.routes.health import router as health_router
 from api.security import SecurityHeadersMiddleware
-from core.config import API_PREFIX, CORS_ORIGINS, DEBUG, PROJECT_NAME, VERSION
+from core.config import (
+    API_PREFIX,
+    CORS_ORIGINS,
+    DEBUG,
+    MCP_ENABLED,
+    PROJECT_NAME,
+    VERSION,
+)
 from core.events import lifespan
 from core.tracing import setup_tracing
 from db.rows import ConflictError, NotFoundError
 from db.session import engine
+from mcp_server import server as mcp_server
 
 
 # The services raise these with a message fit to show (db/rows.py); the
@@ -68,6 +76,8 @@ def get_application() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(api_router, prefix=API_PREFIX)
+    if MCP_ENABLED:
+        mcp_server.mount(application)
     return application
 
 

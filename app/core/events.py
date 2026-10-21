@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 from loguru import logger
@@ -35,7 +35,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.warning("REDIS_URL is not set: requests are not rate limited")
     try:
-        yield
+        async with AsyncExitStack() as stack:
+            # The writing MCP server's (mcp_server/server.py), when it is on:
+            # FastAPI does not run the lifespan of an app it routes to.
+            mcp = getattr(app.state, "mcp", None)
+            if mcp is not None:
+                await stack.enter_async_context(mcp.session_manager.run())
+            yield
     finally:
         if redis is not None:
             await redis.aclose()

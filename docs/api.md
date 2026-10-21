@@ -28,6 +28,7 @@ Interactive docs are served at `/docs` and `/redoc`.
 | `GET /api/v1/admin/ask/questions/new`, `POST .../seen` | How many visitors asked since this admin last opened Questions (`{"count", "since"}`); opening it records the visit and returns the previous one (`{"previous"}`) |
 | `POST /api/v1/admin/complete` | Note autocomplete: `{"prefix", "title", "noteId"}` → `{"id", "suggestion"}` (empty when the model is unsure or unavailable) |
 | `POST /api/v1/admin/complete/{id}/feedback` | `{"outcome": "accepted" \| "rejected" \| "ignored", "acceptedChars"}`, recorded once per suggestion |
+| `POST /mcp` | The writing MCP server (below), with `MCP_ENABLED`. Needs a bearer token from its OAuth endpoints: `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`, `/register`, `/authorize` (then the consent page, `/api/v1/auth/mcp/consent`), `/token`, `/revoke` |
 
 Lists return `{"data": [...], "pagination": {"total", "limit", "offset", "hasMore"}}`; categories return `data` only. Single items return `{"data": {...}}`. Projects and notes use camelCase fields.
 
@@ -49,6 +50,26 @@ Response: a stream of server-sent events.
 
 How the answer is built: [Design notes → Ask](design.md#ask-cache-augmented-generation-not-rag).
 
+## The writing MCP server
+
+Claude reads and writes the lab notes through [MCP](https://modelcontextprotocol.io), signed in as the owner. Connect it from Claude Code:
+
+```bash
+claude mcp add --transport http yarikama-writing https://api.yarikama.com/mcp
+```
+
+or in claude.ai under Settings → Connectors → Add custom connector, with the same URL. Either opens a consent page naming the client, then Sign in with Google; only `ADMIN_EMAILS` get in.
+
+| Tool | Does |
+|---|---|
+| `list_lab_notes`, `get_lab_note`, `list_lab_note_tags` | Read, drafts included; filter by published, tag or text |
+| `create_lab_note` | A new note, a draft unless told otherwise; `read_time` is worked out from the body |
+| `update_lab_note`, `edit_lab_note_content` | Change fields, or replace one passage of the body without resending it |
+| `set_lab_note_published` | Publish (dated today, UTC) or take back to a draft |
+| `delete_lab_note` | Delete, given the slug again as a check |
+
+It also offers [`app/content/writing-guide.md`](../app/content/writing-guide.md) as the resource `writing://guide`, each note as `notes://{slug}`, and the prompts `draft_lab_note` and `review_lab_note`. Every write is logged with the account. How sign-in works: [Security](security.md).
+
 ## Rate limits
 
 Limits are counted per visitor: the `CF-Connecting-IP` address that Cloudflare sets, with IPv6 grouped by /64. They are kept in Redis, so every replica shares them. Over a limit, the API answers `429` with `Retry-After` in seconds and a readable `detail`.
@@ -57,7 +78,7 @@ Limits are counted per visitor: the `CF-Connecting-IP` address that Cloudflare s
 |------|-------|-----------|------------------|
 | Contact form | 3 messages per hour | Sliding log | Allow |
 | Chat questions | 10 per hour per visitor, and 500 a day for the whole site; not counted for the signed-in admin | Sliding log; token bucket | Allow |
-| Every other `/api/` request except `/api/v1/admin/*` and preflights | Bursts of 60, then 1 per second | Token bucket | Allow |
+| Every other `/api/` request except `/api/v1/admin/*` and preflights, and the MCP server's `/register`, `/authorize`, `/token` and `/revoke` | Bursts of 60, then 1 per second | Token bucket | Allow |
 
 How they're implemented: [Design notes → Rate limits](design.md#rate-limits-that-hold-under-concurrency).
 

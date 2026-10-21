@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.datastructures import Secret
 
+import main
 from core import events
 from main import get_application
 from services.rate_limit import RateLimiter
@@ -30,6 +31,24 @@ async def test_lifespan_with_redis_sets_up_the_rate_limiter(monkeypatch):
 
     async with events.lifespan(app):
         assert isinstance(app.state.rate_limiter, RateLimiter)
+
+
+@pytest.mark.anyio
+async def test_the_writing_mcp_server_is_served_when_enabled(monkeypatch):
+    monkeypatch.setattr(events, "REDIS_URL", Secret(""))
+    monkeypatch.setattr(main, "MCP_ENABLED", True)
+    app = get_application()
+    paths = {getattr(route, "path", None) for route in app.routes}
+    assert {"/mcp", "/authorize", "/token", "/register"} <= paths
+
+    # Its session manager runs for as long as the app.
+    async with events.lifespan(app):
+        pass
+
+
+def test_the_writing_mcp_server_is_off_by_default():
+    paths = {getattr(route, "path", None) for route in get_application().routes}
+    assert "/mcp" not in paths
 
 
 def test_get_application():
