@@ -5,74 +5,35 @@ everywhere; only the owner gets in (services/mcp_oauth.py).
 """
 
 import datetime
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
 from loguru import logger
-from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
-from mcp_types import ToolAnnotations
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from db.models.lab_notes import LabNote
-from db.rows import ConflictError, NotFoundError
+from db.rows import NotFoundError
+from mcp_server.common import (
+    OUTWARD,
+    READ,
+    WRITE,
+    Slug,
+    as_tool_errors,
+    given,
+    today,
+    who,
+)
 from schemas.lab_notes import LabNoteCreate, LabNoteResponse, LabNoteUpdate
 from services.content import lab_notes
 
 GUIDE = Path(__file__).resolve().parent.parent / "content" / "writing-guide.md"
 
-READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
-WRITE = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=False,
-    idempotent_hint=False,
-    open_world_hint=False,
-)
-# Visible to the world (publishing) or gone for good (deleting): clients
-# should ask first.
-OUTWARD = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=True,
-    idempotent_hint=True,
-    open_world_hint=False,
-)
-
 IdOrSlug = Annotated[str, Field(description="The note's id (a UUID) or its slug")]
-Slug = Annotated[
-    str,
-    Field(
-        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
-        max_length=255,
-        description="Lowercase kebab-case, ASCII: the note's URL",
-    ),
-]
 Tags = Annotated[list[str], Field(description="2 to 5 tags; reuse existing ones")]
-
-
-def today() -> datetime.date:
-    """Today in UTC, like every other date the API keeps."""
-    return datetime.datetime.now(datetime.timezone.utc).date()
-
-
-def who() -> str:
-    """The account behind the current request, for the log."""
-    token = get_access_token()
-    return (token.subject if token else None) or "unknown"
-
-
-@contextmanager
-def as_tool_errors() -> Iterator[None]:
-    """A missing note or a taken slug, as an error the model can read and
-    correct; anything else stays a crash the client sees no detail of."""
-    try:
-        yield
-    except (NotFoundError, ConflictError) as error:
-        raise ToolError(str(error)) from error
 
 
 async def find(db: AsyncSession, id_or_slug: str) -> LabNote:
@@ -188,18 +149,14 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
     ) -> dict[str, Any]:
         """Changes the fields given and leaves the rest. Publishing is
         set_lab_note_published."""
-        changes: dict[str, Any] = {
-            name: value
-            for name, value in {
-                "title": title,
-                "slug": slug,
-                "excerpt": excerpt,
-                "content": content,
-                "tags": tags,
-                "date": date,
-            }.items()
-            if value is not None
-        }
+        changes = given(
+            title=title,
+            slug=slug,
+            excerpt=excerpt,
+            content=content,
+            tags=tags,
+            date=date,
+        )
         if not changes:
             raise ToolError("Nothing to change: give at least one field.")
         if content is not None:

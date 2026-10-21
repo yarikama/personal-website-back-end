@@ -52,7 +52,7 @@ How the answer is built: [Design notes → Ask](design.md#ask-cache-augmented-ge
 
 ## The writing MCP server
 
-Claude reads and writes the lab notes through [MCP](https://modelcontextprotocol.io), signed in as the owner. Connect it from Claude Code:
+Claude reads and writes the lab notes, projects and categories through [MCP](https://modelcontextprotocol.io), signed in as the owner. Connect it from Claude Code:
 
 ```bash
 claude mcp add --transport http yarikama-writing https://api.yarikama.com/mcp
@@ -67,6 +67,10 @@ or in claude.ai under Settings → Connectors → Add custom connector, with the
 | `update_lab_note`, `edit_lab_note_content` | Change fields, or replace one passage of the body without resending it |
 | `set_lab_note_published` | Publish (dated today, UTC) or take back to a draft |
 | `delete_lab_note` | Delete, given the slug again as a check |
+| `list_projects`, `get_project` | Read, unpublished included; filter by published, category, featured or tag |
+| `create_project`, `update_project` | A new project (unpublished unless told otherwise; category by name or id), or change its fields |
+| `set_project_published`, `delete_project` | Show or hide it on the works page; delete, given the slug again |
+| `list_categories`, `create_category`, `update_category`, `delete_category` | The works page's filters. `all` is taken by its own "All"; a category with projects in it cannot be deleted |
 
 It also offers [`app/content/writing-guide.md`](../app/content/writing-guide.md) as the resource `writing://guide`, each note as `notes://{slug}`, and the prompts `draft_lab_note` and `review_lab_note`. Every write is logged with the account. How sign-in works: [Security](security.md).
 

@@ -14,13 +14,14 @@ from starlette.routing import Route
 
 from core.config import API_PREFIX, MCP_ISSUER_URL
 from db.session import SessionLocal
-from mcp_server import lab_notes
+from mcp_server import lab_notes, projects
 from services.mcp_oauth import WritingOAuth
 
 INSTRUCTIONS = (
     "The content of yarikama.com, the owner's personal site: lab notes "
-    "(technical essays in Markdown). Read the writing://guide resource "
-    "before writing or editing one. Notes are created as drafts; publish or "
+    "(technical essays in Markdown), and the projects on its works page with "
+    "their categories. Read the writing://guide resource before writing or "
+    "editing a note. Notes and projects are created unpublished; publish or "
     "delete only when the owner asks."
 )
 
@@ -50,6 +51,7 @@ def build(
         ),
     )
     lab_notes.register(server, sessions)
+    projects.register(server, sessions)
     return server
 
 

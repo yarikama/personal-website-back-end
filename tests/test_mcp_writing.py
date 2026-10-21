@@ -2,9 +2,10 @@
 The writing MCP server (mcp_server/) and its sign-in (services/mcp_oauth.py),
 over HTTP as Claude uses them: /register, /authorize, Sign in with Google
 (Google faked as in test_google_login.py), /token, then JSON-RPC on /mcp.
-Notes and clients are rows in PostgreSQL like the other database tests:
-every note's slug starts with PREFIX, and the MCP clients (a table only
-these tests use) are all deleted afterwards.
+Notes, projects, categories and clients are rows in PostgreSQL like the other
+database tests: every note's and project's slug and every category's name
+starts with PREFIX, and the MCP clients (a table only these tests use) are
+all deleted afterwards.
 """
 
 import base64
@@ -25,8 +26,10 @@ from sqlalchemy import delete
 
 from core import config
 from db.dependency import get_db
+from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.mcp_oauth import McpClient
+from db.models.projects import Project
 from main import get_application
 from mcp_server import server as mcp_server
 from services import google_oauth
@@ -93,6 +96,8 @@ def tables(sync_sessions):
     def clean():
         with sync_sessions() as db:
             db.execute(delete(LabNote).where(LabNote.slug.startswith(PREFIX)))
+            db.execute(delete(Project).where(Project.slug.startswith(PREFIX)))
+            db.execute(delete(Category).where(Category.name.startswith(PREFIX)))
             db.execute(delete(McpClient))
             db.commit()
 
@@ -274,8 +279,9 @@ async def mcp(client):
 def tool(mcp):
     """tool(name, **arguments): the tool's result, or its error message."""
 
-    async def call(name, **arguments):
-        result = await mcp("tools/call", {"name": name, "arguments": arguments})
+    # Positional-only: a tool may take a `name` of its own (create_category).
+    async def call(tool_name, /, **arguments):
+        result = await mcp("tools/call", {"name": tool_name, "arguments": arguments})
         if result["isError"]:
             return {"error": result["content"][0]["text"]}
         if "structuredContent" in result:
@@ -929,6 +935,172 @@ async def test_a_missing_note_is_neither_a_resource_nor_reviewed(client):
         {"name": "review_lab_note", "arguments": {"slug": f"{PREFIX}none"}},
     )
     assert "error" in review.json()
+
+
+# Projects and categories
+
+
+async def new_category(tool, name, **fields):
+    category = await tool(
+        "create_category", name=PREFIX + name, label=name.title(), **fields
+    )
+    assert "error" not in category, category
+    return category
+
+
+async def new_project(tool, name, category, **fields):
+    project = await tool(
+        "create_project",
+        **{
+            "title": name.title(),
+            "slug": PREFIX + name,
+            "description": f"About {name}.",
+            "category": category,
+            "tags": ["Testing"],
+            "year": "2026",
+            **fields,
+        },
+    )
+    assert "error" not in project, project
+    return project
+
+
+async def test_a_new_project_is_unpublished_and_filed_by_category_name(client, tool):
+    await new_category(tool, "ml")
+    project = await new_project(tool, "model", f"{PREFIX}ml", featured=True)
+
+    assert project["published"] is False
+    assert project["category"]["name"] == f"{PREFIX}ml"
+    assert project["featured"] is True
+    assert (await client.get(f"/api/v1/projects/{PREFIX}model")).status_code == 404
+    by_id = await tool("get_project", id_or_slug=project["id"])
+    assert by_id["slug"] == project["slug"]
+
+
+async def test_a_project_needs_a_category_that_exists(tool):
+    missing = await tool(
+        "create_project",
+        title="X",
+        slug=f"{PREFIX}x",
+        description="x",
+        category=f"{PREFIX}nowhere",
+        tags=[],
+        year="2026",
+    )
+    assert "not found" in missing["error"]
+
+
+async def test_the_list_filters_by_category_and_state(tool):
+    await new_category(tool, "a")
+    await new_category(tool, "b")
+    hidden = await new_project(tool, "hidden", f"{PREFIX}a")
+    shown = await new_project(tool, "shown", f"{PREFIX}b", published=True)
+
+    in_a = await tool("list_projects", category=f"{PREFIX}a")
+    assert [p["slug"] for p in in_a["projects"]] == [hidden["slug"]]
+    live = await tool("list_projects", published=True, category=f"{PREFIX}b")
+    assert [p["slug"] for p in live["projects"]] == [shown["slug"]]
+    nowhere = await tool("list_projects", category=f"{PREFIX}nowhere")
+    assert "not found" in nowhere["error"]
+
+
+async def test_a_project_update_changes_only_the_fields_given(tool):
+    await new_category(tool, "first")
+    second = await new_category(tool, "second")
+    project = await new_project(tool, "moving", f"{PREFIX}first")
+
+    moved = await tool(
+        "update_project",
+        id_or_slug=project["slug"],
+        category=second["id"],
+        metrics="10× less compute · 0.43 ms per image",
+    )
+    assert moved["category"]["name"] == f"{PREFIX}second"
+    assert moved["metrics"] == "10× less compute · 0.43 ms per image"
+    assert moved["title"] == project["title"]
+    nothing = await tool("update_project", id_or_slug=project["slug"])
+    assert "Nothing to change" in nothing["error"]
+
+
+async def test_publishing_keeps_the_category(client, tool):
+    await new_category(tool, "kept")
+    project = await new_project(tool, "kept", f"{PREFIX}kept")
+
+    published = await tool(
+        "set_project_published", id_or_slug=project["slug"], published=True
+    )
+    assert published["published"] is True
+    assert published["category"]["name"] == f"{PREFIX}kept"
+    assert (await client.get(f"/api/v1/projects/{PREFIX}kept")).status_code == 200
+
+    hidden = await tool(
+        "set_project_published", id_or_slug=project["slug"], published=False
+    )
+    assert hidden["published"] is False
+
+
+async def test_deleting_a_project_needs_the_slug_again(tool):
+    await new_category(tool, "gone")
+    project = await new_project(tool, "gone", f"{PREFIX}gone")
+    refused = await tool(
+        "delete_project", id_or_slug=project["id"], confirm_slug="other"
+    )
+    assert "Nothing was deleted" in refused["error"]
+    done = await tool(
+        "delete_project", id_or_slug=project["id"], confirm_slug=project["slug"]
+    )
+    assert done == f"Deleted 'Gone' ({PREFIX}gone)."
+    assert "error" in await tool("get_project", id_or_slug=project["slug"])
+
+
+async def test_categories_are_listed_and_changed(tool):
+    created = await new_category(tool, "label", description="Old", order=5)
+    listed = {c["name"]: c for c in await tool("list_categories")}
+    assert listed[f"{PREFIX}label"]["order"] == 5
+
+    changed = await tool(
+        "update_category", name_or_id=f"{PREFIX}label", label="New Label"
+    )
+    assert changed["label"] == "New Label"
+    assert changed["description"] == "Old"
+    by_id = await tool("update_category", name_or_id=created["id"], order=1)
+    assert by_id["order"] == 1
+    nothing = await tool("update_category", name_or_id=f"{PREFIX}label")
+    assert "Nothing to change" in nothing["error"]
+
+
+async def test_all_is_the_works_pages_own_filter(tool):
+    made = await tool("create_category", name="all", label="All")
+    assert "'all'" in made["error"]
+    await new_category(tool, "renamed")
+    renamed = await tool("update_category", name_or_id=f"{PREFIX}renamed", name="all")
+    assert "'all'" in renamed["error"]
+
+
+async def test_a_taken_category_name_is_refused(tool):
+    await new_category(tool, "twice")
+    again = await tool("create_category", name=f"{PREFIX}twice", label="Again")
+    assert "already exists" in again["error"]
+
+
+async def test_a_category_with_projects_is_kept(tool):
+    await new_category(tool, "busy")
+    await new_project(tool, "inside", f"{PREFIX}busy")
+
+    refused = await tool(
+        "delete_category", name_or_id=f"{PREFIX}busy", confirm_name="wrong"
+    )
+    assert "Nothing was deleted" in refused["error"]
+    busy = await tool(
+        "delete_category", name_or_id=f"{PREFIX}busy", confirm_name=f"{PREFIX}busy"
+    )
+    assert "Cannot delete category with 1 project(s)" in busy["error"]
+
+    await new_category(tool, "empty")
+    done = await tool(
+        "delete_category", name_or_id=f"{PREFIX}empty", confirm_name=f"{PREFIX}empty"
+    )
+    assert done == f"Deleted the category 'Empty' ({PREFIX}empty)."
 
 
 # Read time
