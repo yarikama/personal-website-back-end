@@ -13,6 +13,7 @@ Interactive docs are served at `/docs` and `/redoc`.
 | `POST /api/v1/auth/logout` | Ends the session (`204`) |
 | `GET /api/v1/projects`, `GET /api/v1/projects/{slug}` | Published projects, in display order |
 | `GET /api/v1/lab-notes`, `GET /api/v1/lab-notes/{slug}`, `GET /api/v1/lab-notes/tags` | Published notes, and their tags with counts |
+| `GET /api/v1/learnings/graph` | The Learnings page's knowledge graph: `{"nodes": [{"slug", "kind", "title", "summary", "ref", "tags", "previewImage", "published"}], "edges": [{"source", "target", "type"}]}`, published nodes only and the edges between them, by slug. `GET /api/v1/admin/learnings/graph` includes drafts |
 | `GET /api/v1/categories` | Project categories, each with its number of published projects, after an "All" entry that counts them all |
 | `POST /api/v1/contact` | The contact form. The owner gets an email with the message; replying answers the visitor |
 | `GET /api/v1/admin/contact?read=false` | Contact messages, newest first; `read` filters. `PATCH /api/v1/admin/contact/{id}` with `{"read"}` or `{"replied"}`, `DELETE` to remove one |
@@ -53,7 +54,7 @@ How the answer is built: [Design notes → Ask](design.md#ask-cache-augmented-ge
 
 ## The writing MCP server
 
-Claude reads and writes the lab notes, projects and categories, and adds their images, through [MCP](https://modelcontextprotocol.io), signed in as the owner. Connect it from Claude Code:
+Claude reads and writes the lab notes, projects and categories, and the Learnings graph, and adds their images, through [MCP](https://modelcontextprotocol.io), signed in as the owner. Connect it from Claude Code:
 
 ```bash
 claude mcp add --transport http yarikama-writing https://api.yarikama.com/mcp
@@ -72,6 +73,10 @@ or in claude.ai under Settings → Connectors → Add custom connector, with the
 | `create_project`, `update_project` | A new project (unpublished unless told otherwise; category by name or id), or change its fields |
 | `set_project_published`, `delete_project` | Show or hide it on the works page; delete, given the slug again |
 | `list_categories`, `create_category`, `update_category`, `delete_category` | The works page's filters. `all` is taken by its own "All"; a category with projects in it cannot be deleted |
+| `get_learning_graph`, `get_learning_node` | The Learnings graph, drafts included unless asked; one node with the slugs it links to and from |
+| `create_learning_node`, `update_learning_node` | A node, unpublished unless told otherwise: a `learning` (a page in the front end, at `/learnings/<slug>` unless given a `ref`), a `concept` that gathers others, or an `external` `https://` link |
+| `link_learning_nodes`, `unlink_learning_nodes` | Edges: `prerequisite` (source before target), `part_of` (source in target) or `related`. A cycle of prerequisites or of parts is refused |
+| `set_learning_node_published`, `delete_learning_node` | Show or hide a node on the Learnings page (a learning only once its page is live); delete it and its edges, given the slug again |
 | `start_image_upload` | For Claude Code: a single-use, 10-minute token and the `curl` command that sends a file from this machine to `POST /api/v1/uploads` |
 | `import_image_from_url` | For claude.ai, which cannot send files: copies an image from a public `https://` URL |
 | `delete_image` | Deletes one of the site's images and its WebP variants |
@@ -96,6 +101,6 @@ Uploaded JPEG, PNG and WebP images get WebP variants 640 and 1600 px wide (`<nam
 
 ## Caching
 
-`GET` on projects, notes and categories answers with an `ETag` and `Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=600`.
+`GET` on projects, notes, the Learnings graph and categories answers with an `ETag` and `Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=600`.
 - **Browsers** revalidate on every request, and get a `304` when nothing changed.
 - **Cloudflare** keeps a copy for a minute, so edits in the admin show up publicly within about a minute.

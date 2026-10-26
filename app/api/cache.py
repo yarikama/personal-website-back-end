@@ -8,7 +8,8 @@ from core.config import API_PREFIX
 # Published content only: the same for every visitor, and nothing here reads
 # credentials. Everything else (admin, contact) is never cached.
 CACHEABLE_PREFIXES = tuple(
-    f"{API_PREFIX}/v1/{name}" for name in ("projects", "lab-notes", "categories")
+    f"{API_PREFIX}/v1/{name}"
+    for name in ("projects", "lab-notes", "learnings", "categories")
 )
 
 # Browsers revalidate every time (cheap: a 304 from Cloudflare's edge).

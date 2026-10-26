@@ -2,10 +2,10 @@
 The writing MCP server (mcp_server/) and its sign-in (services/mcp_oauth.py),
 over HTTP as Claude uses them: /register, /authorize, Sign in with Google
 (Google faked as in test_google_login.py), /token, then JSON-RPC on /mcp.
-Notes, projects, categories and clients are rows in PostgreSQL like the other
-database tests: every note's and project's slug and every category's name
-starts with PREFIX, and the MCP clients (a table only these tests use) are
-all deleted afterwards.
+Notes, projects, categories, learning nodes and clients are rows in
+PostgreSQL like the other database tests: every note's, project's and
+node's slug and every category's name starts with PREFIX, and the MCP
+clients (a table only these tests use) are all deleted afterwards.
 """
 
 import base64
@@ -34,6 +34,7 @@ from core import config
 from db.dependency import get_db
 from db.models.category import Category
 from db.models.lab_notes import LabNote
+from db.models.learnings import LearningNode
 from db.models.mcp_oauth import McpClient
 from db.models.projects import Project
 from main import get_application
@@ -106,6 +107,7 @@ def tables(sync_sessions):
             db.execute(delete(LabNote).where(LabNote.slug.startswith(PREFIX)))
             db.execute(delete(Project).where(Project.slug.startswith(PREFIX)))
             db.execute(delete(Category).where(Category.name.startswith(PREFIX)))
+            db.execute(delete(LearningNode).where(LearningNode.slug.startswith(PREFIX)))
             db.execute(delete(McpClient))
             db.commit()
 
@@ -1337,6 +1339,317 @@ async def test_only_the_sites_own_images_are_deleted(tool, r2):
     assert done.startswith("Deleted https://assets.test/notes/20261021/a.png")
     keys = [o["Key"] for o in r2["delete"][0]["Delete"]["Objects"]]
     assert keys[0] == "notes/20261021/a.png" and len(keys) == 3
+
+
+# The Learnings graph
+
+
+async def new_node(tool, name, kind="learning", **fields):
+    node = await tool(
+        "create_learning_node",
+        **{
+            "slug": PREFIX + name,
+            "kind": kind,
+            "title": name.title(),
+            "summary": f"About {name}.",
+            **fields,
+        },
+    )
+    assert "error" not in node, node
+    return node
+
+
+def ours(graph):
+    """The test's own part of a graph the whole database shares."""
+    return {
+        "nodes": sorted(
+            n["slug"] for n in graph["nodes"] if n["slug"].startswith(PREFIX)
+        ),
+        "edges": [
+            (e["source"], e["type"], e["target"])
+            for e in graph["edges"]
+            if e["source"].startswith(PREFIX)
+        ],
+    }
+
+
+async def test_a_new_node_is_a_draft_with_its_page_on_the_site(client, tool):
+    node = await new_node(tool, "attention", tags=["ml"])
+    assert node["published"] is False
+    assert node["ref"] == f"/learnings/{PREFIX}attention"
+    assert node["tags"] == ["ml"]
+
+    public = (await client.get("/api/v1/learnings/graph")).json()["data"]
+    assert ours(public)["nodes"] == []
+    everything = await tool("get_learning_graph")
+    assert ours(everything)["nodes"] == [f"{PREFIX}attention"]
+    shown = await tool("get_learning_graph", include_drafts=False)
+    assert ours(shown)["nodes"] == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "ref", "error"),
+    [
+        ("learning", "https://elsewhere.example/x", "path on the site"),
+        ("learning", "//elsewhere.example/x", "path on the site"),
+        ("external", None, "https:// URL"),
+        ("external", "http://elsewhere.example", "https:// URL"),
+        ("concept", "/learnings/x", "leave ref out"),
+    ],
+)
+async def test_what_a_node_leads_to_depends_on_its_kind(tool, kind, ref, error):
+    refused = await tool(
+        "create_learning_node",
+        slug=f"{PREFIX}bad",
+        kind=kind,
+        title="Bad",
+        summary="x",
+        ref=ref,
+    )
+    assert error in refused["error"]
+
+
+async def test_other_kinds_keep_their_ref(tool):
+    paper = await new_node(
+        tool, "paper", "external", ref="https://arxiv.org/abs/1706.03762"
+    )
+    assert paper["ref"] == "https://arxiv.org/abs/1706.03762"
+    concept = await new_node(tool, "nlp", "concept")
+    assert concept["ref"] is None
+    elsewhere = await new_node(tool, "moved", ref="/notes/moved")
+    assert elsewhere["ref"] == "/notes/moved"
+
+
+async def test_a_taken_slug_or_a_missing_node_is_refused(tool):
+    await new_node(tool, "taken")
+    again = await tool(
+        "create_learning_node",
+        slug=f"{PREFIX}taken",
+        kind="concept",
+        title="T",
+        summary="x",
+    )
+    assert "already exists" in again["error"]
+    missing = await tool("get_learning_node", id_or_slug=f"{PREFIX}missing")
+    assert f"'{PREFIX}missing' not found" in missing["error"]
+
+
+async def test_an_update_moves_a_page_with_its_slug(tool):
+    node = await new_node(tool, "old")
+    by_id = await tool("get_learning_node", id_or_slug=node["id"])
+    assert by_id["slug"] == node["slug"]
+
+    moved = await tool(
+        "update_learning_node", id_or_slug=node["slug"], slug=f"{PREFIX}new"
+    )
+    assert moved["ref"] == f"/learnings/{PREFIX}new"
+    assert moved["summary"] == node["summary"]
+
+    custom = await tool("update_learning_node", id_or_slug=moved["id"], ref="/custom")
+    renamed = await tool(
+        "update_learning_node", id_or_slug=moved["id"], slug=f"{PREFIX}newer"
+    )
+    assert custom["ref"] == renamed["ref"] == "/custom"
+
+    nothing = await tool("update_learning_node", id_or_slug=moved["id"])
+    assert "Nothing to change" in nothing["error"]
+
+
+async def test_changing_a_nodes_kind_changes_what_it_may_lead_to(tool):
+    node = await new_node(tool, "shape")
+    concept = await tool("update_learning_node", id_or_slug=node["id"], kind="concept")
+    assert concept["ref"] is None
+    learning = await tool(
+        "update_learning_node", id_or_slug=node["id"], kind="learning"
+    )
+    assert learning["ref"] == f"/learnings/{PREFIX}shape"
+    refused = await tool("update_learning_node", id_or_slug=node["id"], kind="external")
+    assert "https:// URL" in refused["error"]
+    external = await tool(
+        "update_learning_node",
+        id_or_slug=node["id"],
+        kind="external",
+        ref="https://x.example",
+    )
+    assert external["kind"] == "external"
+
+
+async def test_links_are_listed_from_both_ends(tool):
+    for name in ("algebra", "attention", "transformer", "paper"):
+        await new_node(tool, name)
+    await new_node(tool, "nlp", "concept")
+    for source, type, target in (
+        ("algebra", "prerequisite", "attention"),
+        ("attention", "part_of", "nlp"),
+        ("attention", "related", "paper"),
+        ("attention", "prerequisite", "transformer"),
+    ):
+        linked = await tool(
+            "link_learning_nodes",
+            source=PREFIX + source,
+            target=PREFIX + target,
+            type=type,
+        )
+        assert linked == {
+            "source": PREFIX + source,
+            "target": PREFIX + target,
+            "type": type,
+        }
+
+    attention = await tool("get_learning_node", id_or_slug=f"{PREFIX}attention")
+    assert attention["links"] == {
+        "prerequisites": [f"{PREFIX}algebra"],
+        "leads_to": [f"{PREFIX}transformer"],
+        "part_of": [f"{PREFIX}nlp"],
+        "parts": [],
+        "related": [f"{PREFIX}paper"],
+    }
+    nlp = await tool("get_learning_node", id_or_slug=f"{PREFIX}nlp")
+    assert nlp["links"]["parts"] == [f"{PREFIX}attention"]
+    paper = await tool("get_learning_node", id_or_slug=f"{PREFIX}paper")
+    assert paper["links"]["related"] == [f"{PREFIX}attention"]
+
+
+async def test_a_cycle_a_loop_or_a_link_twice_is_refused(tool):
+    for name in ("a", "b", "c"):
+        await new_node(tool, name)
+
+    async def link(source, target, type="prerequisite"):
+        return await tool(
+            "link_learning_nodes",
+            source=PREFIX + source,
+            target=PREFIX + target,
+            type=type,
+        )
+
+    await link("a", "b")
+    await link("b", "c")
+    assert "cycle" in (await link("c", "a"))["error"]
+    assert "itself" in (await link("a", "a"))["error"]
+    assert "already links" in (await link("a", "b"))["error"]
+    # Cycles are per type: c may still be part of a.
+    assert "error" not in await link("c", "a", "part_of")
+    assert "cycle" in (await link("a", "c", "part_of"))["error"]
+    await link("a", "c", "related")
+    assert "already related" in (await link("c", "a", "related"))["error"]
+
+
+async def test_a_link_is_removed_and_a_related_one_either_way_round(tool):
+    for name in ("x", "y"):
+        await new_node(tool, name)
+    for type in ("prerequisite", "related"):
+        await tool(
+            "link_learning_nodes", source=f"{PREFIX}x", target=f"{PREFIX}y", type=type
+        )
+
+    wrong_way = await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}y",
+        target=f"{PREFIX}x",
+        type="prerequisite",
+    )
+    assert "No prerequisite link" in wrong_way["error"]
+    removed = await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}y",
+        target=f"{PREFIX}x",
+        type="related",
+    )
+    assert removed.startswith("Removed the related link")
+    graph = ours(await tool("get_learning_graph"))
+    assert graph["edges"] == [(f"{PREFIX}x", "prerequisite", f"{PREFIX}y")]
+
+
+async def test_deleting_a_node_takes_its_links_and_needs_the_slug_again(tool):
+    for name in ("keep", "gone"):
+        await new_node(tool, name)
+    await tool(
+        "link_learning_nodes",
+        source=f"{PREFIX}keep",
+        target=f"{PREFIX}gone",
+        type="related",
+    )
+
+    refused = await tool(
+        "delete_learning_node", id_or_slug=f"{PREFIX}gone", confirm_slug="x"
+    )
+    assert "Nothing was deleted" in refused["error"]
+    done = await tool(
+        "delete_learning_node", id_or_slug=f"{PREFIX}gone", confirm_slug=f"{PREFIX}gone"
+    )
+    assert done == f"Deleted 'Gone' ({PREFIX}gone) and its links."
+    graph = ours(await tool("get_learning_graph"))
+    assert graph == {"nodes": [f"{PREFIX}keep"], "edges": []}
+
+
+async def test_the_site_shows_published_nodes_and_the_links_between_them(
+    client, tool, sign_in
+):
+    for name in ("shown", "also-shown", "draft"):
+        await new_node(tool, name)
+    for target in ("also-shown", "draft"):
+        await tool(
+            "link_learning_nodes",
+            source=f"{PREFIX}shown",
+            target=PREFIX + target,
+            type="related",
+        )
+    for name in ("shown", "also-shown"):
+        published = await tool(
+            "set_learning_node_published", id_or_slug=PREFIX + name, published=True
+        )
+        assert published["published"] is True
+
+    response = await client.get("/api/v1/learnings/graph")
+    assert response.headers["Cache-Control"].startswith("public")
+    public = response.json()["data"]
+    assert ours(public) == {
+        "nodes": [f"{PREFIX}also-shown", f"{PREFIX}shown"],
+        "edges": [(f"{PREFIX}shown", "related", f"{PREFIX}also-shown")],
+    }
+    card = next(n for n in public["nodes"] if n["slug"] == f"{PREFIX}shown")
+    assert card == {
+        "slug": f"{PREFIX}shown",
+        "kind": "learning",
+        "title": "Shown",
+        "summary": "About shown.",
+        "ref": f"/learnings/{PREFIX}shown",
+        "tags": [],
+        "previewImage": None,
+        "published": True,
+    }
+
+    assert (await client.get("/api/v1/admin/learnings/graph")).status_code == 401
+    admin = await client.get("/api/v1/admin/learnings/graph", headers=await sign_in())
+    assert len(ours(admin.json()["data"])["edges"]) == 2
+
+    hidden = await tool(
+        "set_learning_node_published", id_or_slug=f"{PREFIX}shown", published=False
+    )
+    assert hidden["published"] is False
+
+
+async def test_graph_writes_are_logged_with_the_account(tool):
+    lines: list[str] = []
+    sink = logger.add(lambda message: lines.append(str(message)), level="INFO")
+    try:
+        await new_node(tool, "one")
+        await new_node(tool, "two")
+        await tool(
+            "link_learning_nodes",
+            source=f"{PREFIX}one",
+            target=f"{PREFIX}two",
+            type="related",
+        )
+    finally:
+        logger.remove(sink)
+    assert any(
+        f"MCP create_learning_node by {OWNER}: {PREFIX}one" in line for line in lines
+    )
+    assert any(
+        f"MCP link_learning_nodes by {OWNER}: {PREFIX}one related {PREFIX}two" in line
+        for line in lines
+    )
 
 
 # Read time

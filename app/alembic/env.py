@@ -26,6 +26,7 @@ from db.models.admin_seen import AdminSeen
 from db.models.todo import AdminTodo
 from db.models.admin_setting import AdminSetting
 from db.models.mcp_oauth import McpClient, McpRefreshToken
+from db.models.learnings import LearningEdge, LearningNode
 
 target_metadata = Base.metadata
 

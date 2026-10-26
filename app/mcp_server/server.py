@@ -17,15 +17,18 @@ from starlette.routing import Route
 from api.dependencies.redis import get_redis
 from core.config import API_PREFIX, MCP_ISSUER_URL
 from db.session import SessionLocal
-from mcp_server import images, lab_notes, projects
+from mcp_server import images, lab_notes, learnings, projects
 from services.mcp_oauth import WritingOAuth
 
 INSTRUCTIONS = (
     "The content of yarikama.com, the owner's personal site: lab notes "
     "(technical essays in Markdown), the projects on its works page with "
-    "their categories, and the images both show. Read the writing://guide "
-    "resource before writing or editing a note. Notes and projects are "
-    "created unpublished; publish or delete only when the owner asks. To add "
+    "their categories, the knowledge graph of its Learnings page, and the "
+    "images they show. Read the writing://guide resource before writing or "
+    "editing a note. Notes, projects and graph nodes are created "
+    "unpublished; publish or delete only when the owner asks. A learning "
+    "node's page is code in the site's front end: publish the node only "
+    "once that page is live. To add "
     "an image, use start_image_upload from Claude Code (a file on this "
     "machine) or import_image_from_url from elsewhere."
 )
@@ -59,6 +62,7 @@ def build(
     )
     lab_notes.register(server, sessions)
     projects.register(server, sessions)
+    learnings.register(server, sessions)
     images.register(server, redis, upload_url=f"{issuer}{API_PREFIX}/v1/uploads")
     return server
 

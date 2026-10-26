@@ -17,11 +17,11 @@ It is built with FastAPI and PostgreSQL. It runs on a single-node k3s cluster on
 
 ## What it does
 
-- **Content API**: projects, notes and categories, cached at the edge, plus a contact form that emails the owner.
+- **Content API**: projects, notes, categories and the Learnings page's knowledge graph, cached at the edge, plus a contact form that emails the owner.
 - **Ask about my work**: `POST /api/v1/ask` streams an answer from Qwen3.5-4B over server-sent events, with checked citations to the projects, notes and resume it used.
 - **Note autocomplete**: suggestions from Qwen3.5-0.8B-Base while the author writes. Every suggestion and what became of it is stored as training data.
 - **Images**: uploads go to Cloudflare R2. A background worker makes WebP variants of each image.
-- **Writing with Claude**: an MCP server at `/mcp` lets Claude (Claude Code or claude.ai) draft, edit and publish notes and projects, signed in as the owner.
+- **Writing with Claude**: an MCP server at `/mcp` lets Claude (Claude Code or claude.ai) draft, edit and publish notes and projects, and build the Learnings graph, signed in as the owner.
 - **Protection**: rate limits in Redis, a cap on concurrent answers, a daily limit on questions for the whole site, and an admin area behind Sign in with Google.
 
 ![Architecture: visitors reach the API through Cloudflare and a tunnel into a single-node k3s cluster at home, where FastAPI talks to PostgreSQL, Redis and two vLLM models on one GPU; GitHub Actions and Argo CD deploy it, and backups and images go to Cloudflare R2](docs/architecture.svg)
