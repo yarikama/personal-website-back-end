@@ -5,7 +5,8 @@ the graph), a concept that only gathers others, or a link elsewhere. Edges
 are typed and point one way:
 
 - prerequisite: the source is learned before the target
-- part_of: the source is part of the target
+- part_of: the source is part of the target. A node can be part of several
+  others; one of those edges is its home, where it sits on the map
 - related: either way round; kept once
 """
 
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -70,8 +72,18 @@ class LearningEdge(Base):
     __table_args__ = (
         CheckConstraint(one_of("type", EDGE_TYPES), name="learning_edges_type"),
         CheckConstraint("source_id <> target_id", name="learning_edges_not_a_loop"),
+        CheckConstraint(
+            "NOT home OR type = 'part_of'", name="learning_edges_home_is_part_of"
+        ),
         # The primary key starts with source_id; this finds what leads in.
         Index("ix_learning_edges_target_id", "target_id"),
+        # At most one home per node
+        Index(
+            "ix_learning_edges_one_home",
+            "source_id",
+            unique=True,
+            postgresql_where=text("home"),
+        ),
     )
 
     # Deleting a node deletes its edges (in the database: there is no
@@ -87,6 +99,7 @@ class LearningEdge(Base):
         primary_key=True,
     )
     type: Mapped[str] = mapped_column(String(20), primary_key=True)
+    home: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now
     )

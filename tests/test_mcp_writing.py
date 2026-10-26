@@ -1494,6 +1494,7 @@ async def test_links_are_listed_from_both_ends(tool):
             "source": PREFIX + source,
             "target": PREFIX + target,
             "type": type,
+            "home": type == "part_of",
         }
 
     attention = await tool("get_learning_node", id_or_slug=f"{PREFIX}attention")
@@ -1503,6 +1504,7 @@ async def test_links_are_listed_from_both_ends(tool):
         "part_of": [f"{PREFIX}nlp"],
         "parts": [],
         "related": [f"{PREFIX}paper"],
+        "home": f"{PREFIX}nlp",
     }
     nlp = await tool("get_learning_node", id_or_slug=f"{PREFIX}nlp")
     assert nlp["links"]["parts"] == [f"{PREFIX}attention"]
@@ -1627,6 +1629,120 @@ async def test_the_site_shows_published_nodes_and_the_links_between_them(
         "set_learning_node_published", id_or_slug=f"{PREFIX}shown", published=False
     )
     assert hidden["published"] is False
+
+
+async def test_a_node_can_be_part_of_several_with_one_home(client, tool):
+    await new_node(tool, "hashing")
+    for name in ("algorithms", "partitioning", "caching"):
+        await new_node(tool, name, "concept")
+
+    async def part_of(parent, **extra):
+        return await tool(
+            "link_learning_nodes",
+            source=f"{PREFIX}hashing",
+            target=PREFIX + parent,
+            type="part_of",
+            **extra,
+        )
+
+    async def home():
+        node = await tool("get_learning_node", id_or_slug=f"{PREFIX}hashing")
+        return node["links"]["home"], node["links"]["part_of"]
+
+    # The first is its home; the next is only "also part of"
+    assert (await part_of("algorithms"))["home"] is True
+    assert (await part_of("partitioning"))["home"] is False
+    assert await home() == (
+        f"{PREFIX}algorithms",
+        [f"{PREFIX}algorithms", f"{PREFIX}partitioning"],
+    )
+
+    # A later one can take over as home
+    assert (await part_of("caching", home=True))["home"] is True
+    assert (await home())[0] == f"{PREFIX}caching"
+
+    moved = await tool(
+        "set_learning_node_home",
+        id_or_slug=f"{PREFIX}hashing",
+        parent=f"{PREFIX}partitioning",
+    )
+    assert moved == f"'{PREFIX}hashing' now lives in '{PREFIX}partitioning'."
+    assert (await home())[0] == f"{PREFIX}partitioning"
+
+    homes = [
+        e
+        for e in (await tool("get_learning_graph"))["edges"]
+        if e["source"] == f"{PREFIX}hashing" and e["home"]
+    ]
+    assert [e["target"] for e in homes] == [f"{PREFIX}partitioning"]
+
+
+async def test_losing_its_home_moves_a_node_to_its_oldest_other_parent(tool):
+    await new_node(tool, "leaf")
+    for name in ("first", "second", "third"):
+        await new_node(tool, name, "concept")
+        await tool(
+            "link_learning_nodes",
+            source=f"{PREFIX}leaf",
+            target=PREFIX + name,
+            type="part_of",
+        )
+    await tool(
+        "set_learning_node_home", id_or_slug=f"{PREFIX}leaf", parent=f"{PREFIX}third"
+    )
+
+    await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}leaf",
+        target=f"{PREFIX}third",
+        type="part_of",
+    )
+    node = await tool("get_learning_node", id_or_slug=f"{PREFIX}leaf")
+    assert node["links"]["home"] == f"{PREFIX}first"
+
+    # Removing a part that isn't its home leaves the home alone
+    await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}leaf",
+        target=f"{PREFIX}second",
+        type="part_of",
+    )
+    node = await tool("get_learning_node", id_or_slug=f"{PREFIX}leaf")
+    assert node["links"]["home"] == f"{PREFIX}first"
+
+    await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}leaf",
+        target=f"{PREFIX}first",
+        type="part_of",
+    )
+    node = await tool("get_learning_node", id_or_slug=f"{PREFIX}leaf")
+    assert node["links"]["home"] is None
+
+
+async def test_only_a_part_of_link_can_be_a_home(tool):
+    for name in ("p", "q"):
+        await new_node(tool, name)
+    refused = await tool(
+        "link_learning_nodes",
+        source=f"{PREFIX}p",
+        target=f"{PREFIX}q",
+        type="related",
+        home=True,
+    )
+    assert "Only a part_of link" in refused["error"]
+    missing = await tool(
+        "set_learning_node_home", id_or_slug=f"{PREFIX}p", parent=f"{PREFIX}q"
+    )
+    assert f"'{PREFIX}p' is not part of '{PREFIX}q'" in missing["error"]
+    already = await tool(
+        "link_learning_nodes", source=f"{PREFIX}p", target=f"{PREFIX}q", type="part_of"
+    )
+    assert already["home"] is True
+    again = await tool(
+        "set_learning_node_home", id_or_slug=f"{PREFIX}p", parent=f"{PREFIX}q"
+    )
+    assert again.endswith("now lives in '" + PREFIX + "q'.")
 
 
 async def test_graph_writes_are_logged_with_the_account(tool):

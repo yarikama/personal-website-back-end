@@ -232,19 +232,56 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
 
     @server.tool(annotations=WRITE)
     async def link_learning_nodes(
-        source: IdOrSlug, target: IdOrSlug, type: Type
-    ) -> dict[str, str]:
-        """Links two nodes. A cycle of prerequisites or of parts is refused,
-        as is a link there already is."""
+        source: IdOrSlug,
+        target: IdOrSlug,
+        type: Type,
+        home: Annotated[
+            bool,
+            Field(
+                description="part_of only: make the target the source's home, "
+                "where it sits on the map. A node's first part_of link is its "
+                "home anyway; later ones are 'also part of'"
+            ),
+        ] = False,
+    ) -> dict[str, Any]:
+        """Links two nodes. A node can be part of several others, one of
+        them its home. A cycle of prerequisites or of parts is refused, as is
+        a link there already is."""
+        if home and type != "part_of":
+            raise ToolError("Only a part_of link can be a node's home.")
         async with sessions() as db:
             with as_tool_errors():
                 start = await find(db, source)
                 end = await find(db, target)
-                await learnings.link(db, start, end, type)
+                edge = await learnings.link(db, start, end, type, home=home)
         logger.info(
             f"MCP link_learning_nodes by {who()}: {start.slug} {type} {end.slug}"
         )
-        return {"source": start.slug, "target": end.slug, "type": type}
+        return {
+            "source": start.slug,
+            "target": end.slug,
+            "type": type,
+            "home": edge.home,
+        }
+
+    @server.tool(annotations=WRITE)
+    async def set_learning_node_home(
+        id_or_slug: IdOrSlug,
+        parent: Annotated[
+            str, Field(description="A node it is already part of: id or slug")
+        ],
+    ) -> str:
+        """Moves a node's home to another node it is part of: where it sits
+        on the map and what its page is filed under."""
+        async with sessions() as db:
+            with as_tool_errors():
+                node = await find(db, id_or_slug)
+                home = await find(db, parent)
+                await learnings.set_home(db, node, home)
+        logger.info(
+            f"MCP set_learning_node_home by {who()}: {node.slug} in {home.slug}"
+        )
+        return f"'{node.slug}' now lives in '{home.slug}'."
 
     @server.tool(annotations=WRITE)
     async def unlink_learning_nodes(

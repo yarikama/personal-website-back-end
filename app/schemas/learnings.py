@@ -55,6 +55,8 @@ class GraphEdge(BaseSchema):
     source: str
     target: str
     type: EdgeType
+    # A part_of edge that is the source's home: where it sits on the map
+    home: bool = False
 
 
 class LearningGraph(BaseSchema):
