@@ -13,7 +13,7 @@ Interactive docs are served at `/docs` and `/redoc`.
 | `POST /api/v1/auth/logout` | Ends the session (`204`) |
 | `GET /api/v1/projects`, `GET /api/v1/projects/{slug}` | Published projects, in display order |
 | `GET /api/v1/lab-notes`, `GET /api/v1/lab-notes/{slug}`, `GET /api/v1/lab-notes/tags` | Published notes, and their tags with counts |
-| `GET /api/v1/learnings/graph` | The Learnings page's knowledge graph: `{"nodes": [{"slug", "kind", "title", "summary", "ref", "tags", "previewImage", "published"}], "edges": [{"source", "target", "type"}]}`, published nodes only and the edges between them, by slug. `GET /api/v1/admin/learnings/graph` includes drafts |
+| `GET /api/v1/learnings/graph` | The Learnings page's knowledge graph: `{"nodes": [{"slug", "kind", "title", "summary", "ref", "tags", "previewImage", "published"}], "edges": [{"source", "target", "type", "home"}]}`, published nodes only and the edges between them, by slug. `home` marks the one `part_of` edge that is a node's home: a node can be part of several others. `GET /api/v1/admin/learnings/graph` includes drafts |
 | `GET /api/v1/categories` | Project categories, each with its number of published projects, after an "All" entry that counts them all |
 | `POST /api/v1/contact` | The contact form. The owner gets an email with the message; replying answers the visitor |
 | `GET /api/v1/admin/contact?read=false` | Contact messages, newest first; `read` filters. `PATCH /api/v1/admin/contact/{id}` with `{"read"}` or `{"replied"}`, `DELETE` to remove one |
@@ -75,7 +75,8 @@ or in claude.ai under Settings → Connectors → Add custom connector, with the
 | `list_categories`, `create_category`, `update_category`, `delete_category` | The works page's filters. `all` is taken by its own "All"; a category with projects in it cannot be deleted |
 | `get_learning_graph`, `get_learning_node` | The Learnings graph, drafts included unless asked; one node with the slugs it links to and from |
 | `create_learning_node`, `update_learning_node` | A node, unpublished unless told otherwise: a `learning` (a page in the front end, at `/learnings/<slug>` unless given a `ref`), a `concept` that gathers others, or an `external` `https://` link |
-| `link_learning_nodes`, `unlink_learning_nodes` | Edges: `prerequisite` (source before target), `part_of` (source in target) or `related`. A cycle of prerequisites or of parts is refused |
+| `link_learning_nodes`, `unlink_learning_nodes` | Edges: `prerequisite` (source before target), `part_of` (source in target) or `related`. A cycle of prerequisites or of parts is refused. A node can be part of several others: its first `part_of` is its home, a later one takes over with `home`, and losing its home moves it to its oldest other parent |
+| `set_learning_node_home` | Moves a node's home to another node it is already part of |
 | `set_learning_node_published`, `delete_learning_node` | Show or hide a node on the Learnings page (a learning only once its page is live); delete it and its edges, given the slug again |
 | `start_image_upload` | For Claude Code: a single-use, 10-minute token and the `curl` command that sends a file from this machine to `POST /api/v1/uploads` |
 | `import_image_from_url` | For claude.ai, which cannot send files: copies an image from a public `https://` URL |

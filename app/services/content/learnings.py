@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
@@ -35,6 +36,7 @@ async def graph(db: AsyncSession, *, published_only: bool) -> LearningGraph:
                     "source": slugs[edge.source_id],
                     "target": slugs[edge.target_id],
                     "type": edge.type,
+                    "home": edge.home,
                 }
             )
             for edge in await db.scalars(select(LearningEdge))
@@ -47,9 +49,9 @@ async def graph(db: AsyncSession, *, published_only: bool) -> LearningGraph:
     )
 
 
-async def links(db: AsyncSession, node: LearningNode) -> dict[str, list[str]]:
+async def links(db: AsyncSession, node: LearningNode) -> dict[str, Any]:
     """The slugs of the nodes `node` links to and from, drafts too, by what
-    they are to it."""
+    they are to it, and the slug of its home (or None)."""
     found: dict[str, list[str]] = {
         "prerequisites": [],
         "leads_to": [],
@@ -66,18 +68,21 @@ async def links(db: AsyncSession, node: LearningNode) -> dict[str, list[str]]:
         ("related", True): "related",
         ("related", False): "related",
     }
+    home = None
     for out, this, other in (
         (True, LearningEdge.source_id, LearningEdge.target_id),
         (False, LearningEdge.target_id, LearningEdge.source_id),
     ):
         rows = await db.execute(
-            select(LearningEdge.type, LearningNode.slug)
+            select(LearningEdge.type, LearningEdge.home, LearningNode.slug)
             .join(LearningNode, LearningNode.id == other)
             .where(this == node.id)
         )
-        for type, slug in rows:
+        for type, is_home, slug in rows:
             found[name[type, out]].append(slug)
-    return {key: sorted(slugs) for key, slugs in found.items()}
+            if is_home and out:
+                home = slug
+    return {**{key: sorted(slugs) for key, slugs in found.items()}, "home": home}
 
 
 async def get(db: AsyncSession, id: UUID) -> LearningNode:
@@ -139,12 +144,32 @@ async def reaches(db: AsyncSession, start: UUID, goal: UUID, type: str) -> bool:
     return bool(await db.scalar(select(func.count()).where(reach.c.target_id == goal)))
 
 
+async def home_of(db: AsyncSession, node_id: UUID) -> LearningEdge | None:
+    """The part_of edge that is the node's home, if it has one."""
+    return await db.scalar(
+        select(LearningEdge).where(
+            LearningEdge.source_id == node_id,
+            LearningEdge.type == "part_of",
+            LearningEdge.home.is_(True),
+        )
+    )
+
+
 async def link(
-    db: AsyncSession, source: LearningNode, target: LearningNode, type: str
-) -> None:
+    db: AsyncSession,
+    source: LearningNode,
+    target: LearningNode,
+    type: str,
+    *,
+    home: bool = False,
+) -> LearningEdge:
     """A new edge. ConflictError for a node to itself, an edge there already
     is (a related one either way round), or one that would close a cycle of
-    prerequisites or of parts."""
+    prerequisites or of parts.
+
+    A node's first part_of edge is its home; a later one becomes it only
+    with `home`, taking over from the one before. `home` means nothing for
+    the other types."""
     if source.id == target.id:
         raise ConflictError("A node cannot link to itself")
     # One new edge at a time: two at once could each find no cycle, and
@@ -164,7 +189,31 @@ async def link(
             f"That would make a cycle: '{target.slug}' already leads to "
             f"'{source.slug}' through {type} links"
         )
-    db.add(LearningEdge(source_id=source.id, target_id=target.id, type=type))
+    edge = LearningEdge(source_id=source.id, target_id=target.id, type=type)
+    if type == "part_of":
+        current = await home_of(db, source.id)
+        if home and current is not None:
+            current.home = False
+            # Before the new home goes in: a node has one home at a time
+            await db.flush()
+        edge.home = home or current is None
+    db.add(edge)
+    await db.commit()
+    return edge
+
+
+async def set_home(db: AsyncSession, node: LearningNode, parent: LearningNode) -> None:
+    """Makes `node`'s part_of edge to `parent` its home. NotFoundError if
+    `node` is not part of `parent`."""
+    await db.execute(select(func.pg_advisory_xact_lock(LINK_LOCK)))
+    edge = await db.get(LearningEdge, (node.id, parent.id, "part_of"))
+    if edge is None:
+        raise NotFoundError(f"'{node.slug}' is not part of '{parent.slug}'")
+    current = await home_of(db, node.id)
+    if current is not None and current is not edge:
+        current.home = False
+        await db.flush()
+    edge.home = True
     await db.commit()
 
 
@@ -172,7 +221,9 @@ async def unlink(
     db: AsyncSession, source: LearningNode, target: LearningNode, type: str
 ) -> None:
     """Deletes the edge (a related one either way round); NotFoundError if
-    there is none."""
+    there is none. A node that loses its home moves into the part_of edge
+    it gained first."""
+    await db.execute(select(func.pg_advisory_xact_lock(LINK_LOCK)))
     one_way = and_(
         LearningEdge.source_id == source.id, LearningEdge.target_id == target.id
     )
@@ -186,8 +237,17 @@ async def unlink(
     removed = await db.scalar(
         delete_rows(LearningEdge)
         .where(between, LearningEdge.type == type)
-        .returning(LearningEdge.type)
+        .returning(LearningEdge.home)
     )
     if removed is None:
         raise NotFoundError(f"No {type} link from '{source.slug}' to '{target.slug}'")
+    if removed:
+        following = await db.scalar(
+            select(LearningEdge)
+            .where(LearningEdge.source_id == source.id, LearningEdge.type == "part_of")
+            .order_by(LearningEdge.created_at, LearningEdge.target_id)
+            .limit(1)
+        )
+        if following is not None:
+            following.home = True
     await db.commit()
