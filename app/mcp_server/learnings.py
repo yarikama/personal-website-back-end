@@ -57,7 +57,8 @@ Type = Annotated[
     EdgeType,
     Field(
         description="prerequisite: source is learned before target; part_of: "
-        "source is part of target; related: either way round"
+        "source is part of target; related: either way round; next: target is "
+        "the page to read after source (one each way: the reading order is a line)"
     ),
 ]
 
@@ -245,7 +246,9 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
         ] = False,
     ) -> dict[str, Any]:
         """Links two nodes. A node can be part of several others, one of
-        them its home. A cycle of prerequisites or of parts is refused, as is
+        them its home. A node has at most one next and one before it: the
+        reading order, which a page's Next button and the map follow. A cycle
+        of prerequisites, of parts or of the reading order is refused, as is
         a link there already is."""
         if home and type != "part_of":
             raise ToolError("Only a part_of link can be a node's home.")

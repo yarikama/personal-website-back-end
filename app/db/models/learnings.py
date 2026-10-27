@@ -29,7 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from db.session import Base
 
 KINDS = ("learning", "concept", "external")
-EDGE_TYPES = ("prerequisite", "part_of", "related")
+EDGE_TYPES = ("prerequisite", "part_of", "related", "next")
 
 
 def utc_now() -> datetime:
@@ -83,6 +83,19 @@ class LearningEdge(Base):
             "source_id",
             unique=True,
             postgresql_where=text("home"),
+        ),
+        # The reading order is a line: one page next, one before
+        Index(
+            "ix_learning_edges_one_next",
+            "source_id",
+            unique=True,
+            postgresql_where=text("type = 'next'"),
+        ),
+        Index(
+            "ix_learning_edges_one_previous",
+            "target_id",
+            unique=True,
+            postgresql_where=text("type = 'next'"),
         ),
     )
 
