@@ -1505,6 +1505,8 @@ async def test_links_are_listed_from_both_ends(tool):
         "parts": [],
         "related": [f"{PREFIX}paper"],
         "home": f"{PREFIX}nlp",
+        "next": None,
+        "previous": None,
     }
     nlp = await tool("get_learning_node", id_or_slug=f"{PREFIX}nlp")
     assert nlp["links"]["parts"] == [f"{PREFIX}attention"]
@@ -1718,6 +1720,54 @@ async def test_losing_its_home_moves_a_node_to_its_oldest_other_parent(tool):
     )
     node = await tool("get_learning_node", id_or_slug=f"{PREFIX}leaf")
     assert node["links"]["home"] is None
+
+
+async def test_the_reading_order_is_a_line(client, tool):
+    for name in ("one", "two", "three", "aside"):
+        await new_node(tool, name, published=True)
+
+    async def link(source, target, type="next"):
+        return await tool(
+            "link_learning_nodes",
+            source=PREFIX + source,
+            target=PREFIX + target,
+            type=type,
+        )
+
+    assert (await link("one", "two"))["type"] == "next"
+    await link("two", "three")
+    two = await tool("get_learning_node", id_or_slug=f"{PREFIX}two")
+    assert two["links"]["previous"] == f"{PREFIX}one"
+    assert two["links"]["next"] == f"{PREFIX}three"
+    # Next is reading order, not a prerequisite
+    assert two["links"]["leads_to"] == two["links"]["prerequisites"] == []
+
+    # One next from a node, one into it, and no way back round
+    branch = await link("one", "aside")
+    assert f"'{PREFIX}one' already leads on to '{PREFIX}two'" in branch["error"]
+    merge = await link("aside", "three")
+    assert f"'{PREFIX}two' already leads on to '{PREFIX}three'" in merge["error"]
+    assert "cycle" in (await link("three", "one"))["error"]
+    # Other links between the same nodes are still fine
+    assert "error" not in await link("two", "one", "prerequisite")
+
+    edges = (await client.get("/api/v1/learnings/graph")).json()["data"]["edges"]
+    assert {
+        "source": f"{PREFIX}one",
+        "target": f"{PREFIX}two",
+        "type": "next",
+        "home": False,
+    } in edges
+
+    # Unlinked, the order can be laid again another way
+    await tool(
+        "unlink_learning_nodes",
+        source=f"{PREFIX}one",
+        target=f"{PREFIX}two",
+        type="next",
+    )
+    assert "error" not in await link("one", "aside")
+    assert "error" not in await link("aside", "two")
 
 
 async def test_only_a_part_of_link_can_be_a_home(tool):

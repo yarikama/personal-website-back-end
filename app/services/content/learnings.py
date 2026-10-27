@@ -51,7 +51,8 @@ async def graph(db: AsyncSession, *, published_only: bool) -> LearningGraph:
 
 async def links(db: AsyncSession, node: LearningNode) -> dict[str, Any]:
     """The slugs of the nodes `node` links to and from, drafts too, by what
-    they are to it, and the slug of its home (or None)."""
+    they are to it, and the slugs of its home and of the nodes read next and
+    before it (each None if there is none)."""
     found: dict[str, list[str]] = {
         "prerequisites": [],
         "leads_to": [],
@@ -69,6 +70,8 @@ async def links(db: AsyncSession, node: LearningNode) -> dict[str, Any]:
         ("related", False): "related",
     }
     home = None
+    # In the reading order: there is at most one each way
+    order: dict[bool, str | None] = {True: None, False: None}
     for out, this, other in (
         (True, LearningEdge.source_id, LearningEdge.target_id),
         (False, LearningEdge.target_id, LearningEdge.source_id),
@@ -79,10 +82,18 @@ async def links(db: AsyncSession, node: LearningNode) -> dict[str, Any]:
             .where(this == node.id)
         )
         for type, is_home, slug in rows:
+            if type == "next":
+                order[out] = slug
+                continue
             found[name[type, out]].append(slug)
             if is_home and out:
                 home = slug
-    return {**{key: sorted(slugs) for key, slugs in found.items()}, "home": home}
+    return {
+        **{key: sorted(slugs) for key, slugs in found.items()},
+        "home": home,
+        "next": order[True],
+        "previous": order[False],
+    }
 
 
 async def get(db: AsyncSession, id: UUID) -> LearningNode:
@@ -144,6 +155,28 @@ async def reaches(db: AsyncSession, start: UUID, goal: UUID, type: str) -> bool:
     return bool(await db.scalar(select(func.count()).where(reach.c.target_id == goal)))
 
 
+async def taken_next(
+    db: AsyncSession, source: LearningNode, target: LearningNode
+) -> str | None:
+    """Why `source` can't lead on to `target` in the reading order: one of
+    them is already linked that way to another node. None if it can."""
+    after = await db.scalar(
+        select(LearningNode.slug)
+        .join(LearningEdge, LearningEdge.target_id == LearningNode.id)
+        .where(LearningEdge.source_id == source.id, LearningEdge.type == "next")
+    )
+    if after is not None:
+        return f"'{source.slug}' already leads on to '{after}': unlink that first"
+    before = await db.scalar(
+        select(LearningNode.slug)
+        .join(LearningEdge, LearningEdge.source_id == LearningNode.id)
+        .where(LearningEdge.target_id == target.id, LearningEdge.type == "next")
+    )
+    if before is not None:
+        return f"'{before}' already leads on to '{target.slug}': unlink that first"
+    return None
+
+
 async def home_of(db: AsyncSession, node_id: UUID) -> LearningEdge | None:
     """The part_of edge that is the node's home, if it has one."""
     return await db.scalar(
@@ -164,8 +197,9 @@ async def link(
     home: bool = False,
 ) -> LearningEdge:
     """A new edge. ConflictError for a node to itself, an edge there already
-    is (a related one either way round), or one that would close a cycle of
-    prerequisites or of parts.
+    is (a related one either way round), one that would close a cycle of
+    prerequisites, of parts or of the reading order, or a second next from
+    `source` or to `target` (the reading order is a line).
 
     A node's first part_of edge is its home; a later one becomes it only
     with `home`, taking over from the one before. `home` means nothing for
@@ -184,6 +218,8 @@ async def link(
             raise ConflictError(
                 f"'{target.slug}' is already related to '{source.slug}'"
             )
+    elif type == "next" and (taken := await taken_next(db, source, target)):
+        raise ConflictError(taken)
     elif await reaches(db, target.id, source.id, type):
         raise ConflictError(
             f"That would make a cycle: '{target.slug}' already leads to "

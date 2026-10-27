@@ -7,7 +7,7 @@ from pydantic import Field
 from schemas.base import BaseSchema
 
 Kind = Literal["learning", "concept", "external"]
-EdgeType = Literal["prerequisite", "part_of", "related"]
+EdgeType = Literal["prerequisite", "part_of", "related", "next"]
 
 
 class LearningNodeCreate(BaseSchema):
