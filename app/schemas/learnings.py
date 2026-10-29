@@ -15,6 +15,7 @@ class LearningNodeCreate(BaseSchema):
     kind: Kind
     title: str
     summary: str
+    overview: str | None = None
     ref: str | None = None
     tags: list[str] = Field(default_factory=list)
     preview_image: str | None = None
@@ -26,6 +27,7 @@ class LearningNodeUpdate(BaseSchema):
     kind: Kind | None = None
     title: str | None = None
     summary: str | None = None
+    overview: str | None = None
     ref: str | None = None
     tags: list[str] | None = None
     preview_image: str | None = None
@@ -43,6 +45,7 @@ class GraphNode(BaseSchema):
     kind: Kind
     title: str
     summary: str
+    overview: str | None
     ref: str | None
     tags: list[str]
     preview_image: str | None

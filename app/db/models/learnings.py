@@ -53,6 +53,10 @@ class LearningNode(Base):
     kind: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(255))
     summary: Mapped[str] = mapped_column(Text)
+    # A field or topic's introduction to what it gathers: what it is about,
+    # why it matters, and the way through the nodes inside. A few short
+    # paragraphs, blank lines between them; mostly for concepts.
+    overview: Mapped[str | None] = mapped_column(Text)
     # Where the node leads: the page's path on the site for a learning, a URL
     # for an external link, nothing for a concept.
     ref: Mapped[str | None] = mapped_column(String(2048))

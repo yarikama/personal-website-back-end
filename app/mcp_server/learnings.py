@@ -52,6 +52,15 @@ Summary = Annotated[
     str,
     Field(description="One to three sentences for its card and preview"),
 ]
+Overview = Annotated[
+    str | None,
+    Field(
+        description="For a field or topic: a few short paragraphs, blank lines "
+        "between them, that ready a reader for what is inside: what it is "
+        "about, why it matters, and the way through its nodes. Rewrite it when "
+        "a node joins or leaves"
+    ),
+]
 Tags = Annotated[list[str], Field(description="A few tags; reuse existing ones")]
 Type = Annotated[
     EdgeType,
@@ -118,6 +127,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
         kind: KindField,
         title: str,
         summary: Summary,
+        overview: Overview = None,
         ref: Ref = None,
         tags: Tags | None = None,
         preview_image: Annotated[
@@ -137,6 +147,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
             kind=kind,
             title=title,
             summary=summary,
+            overview=overview,
             ref=ref,
             tags=tags or [],
             preview_image=preview_image,
@@ -155,6 +166,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
         kind: KindField | None = None,
         title: str | None = None,
         summary: Summary | None = None,
+        overview: Overview = None,
         ref: Ref = None,
         tags: Tags | None = None,
         preview_image: str | None = None,
@@ -167,6 +179,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
             kind=kind,
             title=title,
             summary=summary,
+            overview=overview,
             ref=ref,
             tags=tags,
             preview_image=preview_image,
