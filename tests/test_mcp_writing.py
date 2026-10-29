@@ -1455,6 +1455,31 @@ async def test_an_update_moves_a_page_with_its_slug(tool):
     assert "Nothing to change" in nothing["error"]
 
 
+async def test_a_topic_keeps_an_overview_of_what_it_gathers(client, tool):
+    topic = await new_node(tool, "nlp", kind="concept")
+    assert topic["overview"] is None
+
+    written = await tool(
+        "update_learning_node",
+        id_or_slug=topic["slug"],
+        overview="What it is about.\n\nThe way through.",
+    )
+    assert written["overview"] == "What it is about.\n\nThe way through."
+    assert written["summary"] == topic["summary"]
+    renamed = await tool(
+        "update_learning_node", id_or_slug=topic["id"], title="Language"
+    )
+    assert renamed["overview"] == written["overview"]
+
+    await tool("set_learning_node_published", id_or_slug=topic["id"], published=True)
+    public = (await client.get("/api/v1/learnings/graph")).json()["data"]
+    shown = next(n for n in public["nodes"] if n["slug"] == topic["slug"])
+    assert shown["overview"] == "What it is about.\n\nThe way through."
+
+    made = await new_node(tool, "vision", kind="concept", overview="Seeing.")
+    assert made["overview"] == "Seeing."
+
+
 async def test_changing_a_nodes_kind_changes_what_it_may_lead_to(tool):
     node = await new_node(tool, "shape")
     concept = await tool("update_learning_node", id_or_slug=node["id"], kind="concept")
@@ -1617,6 +1642,7 @@ async def test_the_site_shows_published_nodes_and_the_links_between_them(
         "kind": "learning",
         "title": "Shown",
         "summary": "About shown.",
+        "overview": None,
         "ref": f"/learnings/{PREFIX}shown",
         "tags": [],
         "previewImage": None,
