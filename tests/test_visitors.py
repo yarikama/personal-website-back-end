@@ -157,6 +157,16 @@ def test_without_a_token_it_is_off(client, monkeypatch):
     assert client.get("/api/v1/admin/visitors").status_code == 503
 
 
+def test_when_vercel_fails_with_nothing_kept_it_is_a_bad_gateway(client, monkeypatch):
+    async def failing(days, http, vercel):
+        raise visitors.VercelUnavailableError("Vercel answered 503")
+
+    monkeypatch.setattr(visitors, "report", failing)
+    response = client.get("/api/v1/admin/visitors")
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Vercel Web Analytics is unavailable right now."
+
+
 def test_the_range_is_one_to_thirty_days(client):
     assert client.get("/api/v1/admin/visitors?days=0").status_code == 422
     assert client.get("/api/v1/admin/visitors?days=31").status_code == 422

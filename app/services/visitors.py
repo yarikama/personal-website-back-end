@@ -8,6 +8,10 @@ Vercel counts production only, splits days at midnight UTC, and keeps a
 month on the Hobby plan. Each range is asked at most every ten minutes. Its
 query API is slow and uneven (3 to 17 s for the six queries, measured on
 2026-10-05), so when it fails the last report for that range is kept.
+
+The admin's Visitors page (api/routes/visitors.py) and the MCP server's
+get_visitors tool (mcp_server/visitors.py) both read it through
+from_settings and as_json.
 """
 
 import asyncio
@@ -19,10 +23,18 @@ from typing import Any
 import httpx
 from loguru import logger
 
+from core import config
+
 URL = "https://api.vercel.com/v1/query/web-analytics/visits/aggregate"
 CACHE_SECONDS = 10 * 60
 MAX_DAYS = 30
 TOP = 10
+# Vercel's query API took up to 17 s for the six queries (2026-10-05).
+TIMEOUT_SECONDS = 30
+
+
+class NotSetUpError(Exception):
+    """No VERCEL_TOKEN: the site has no visitor counts to read."""
 
 
 class VercelUnavailableError(Exception):
@@ -166,3 +178,31 @@ async def report(
     )
     _cache[key] = (time.monotonic(), result)
     return result
+
+
+async def from_settings(days: int) -> Report:
+    """`report` for the site's own Vercel project, from the app's settings."""
+    token = str(config.VERCEL_TOKEN)
+    if not token:
+        raise NotSetUpError("Vercel Web Analytics is not set up (no VERCEL_TOKEN).")
+    vercel = Vercel(token, config.VERCEL_PROJECT, config.VERCEL_TEAM)
+    async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as http:
+        return await report(days, http, vercel)
+
+
+def _dump(count: Count, key: str = "name") -> dict[str, Any]:
+    return {key: count.name, "pageviews": count.pageviews, "visitors": count.visitors}
+
+
+def as_json(report: Report) -> dict[str, Any]:
+    return {
+        "since": report.since,
+        "until": report.until,
+        "pageviews": report.pageviews,
+        "visitors": report.visitors,
+        "days": [_dump(day, "date") for day in report.days],
+        "pages": [_dump(page) for page in report.pages],
+        "referrers": [_dump(referrer) for referrer in report.referrers],
+        "countries": [_dump(country) for country in report.countries],
+        "devices": [_dump(device) for device in report.devices],
+    }

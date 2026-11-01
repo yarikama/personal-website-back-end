@@ -17,7 +17,7 @@ from starlette.routing import Route
 from api.dependencies.redis import get_redis
 from core.config import API_PREFIX, MCP_ISSUER_URL
 from db.session import SessionLocal
-from mcp_server import images, lab_notes, learnings, projects
+from mcp_server import images, lab_notes, learnings, projects, visitors
 from services.mcp_oauth import WritingOAuth
 
 INSTRUCTIONS = (
@@ -30,7 +30,8 @@ INSTRUCTIONS = (
     "node's page is code in the site's front end: publish the node only "
     "once that page is live. To add "
     "an image, use start_image_upload from Claude Code (a file on this "
-    "machine) or import_image_from_url from elsewhere."
+    "machine) or import_image_from_url from elsewhere. get_visitors reads "
+    "who visited the site, as the admin's Visitors page shows it."
 )
 
 
@@ -64,6 +65,7 @@ def build(
     projects.register(server, sessions)
     learnings.register(server, sessions)
     images.register(server, redis, upload_url=f"{issuer}{API_PREFIX}/v1/uploads")
+    visitors.register(server)
     return server
 
 
