@@ -37,6 +37,20 @@ def test_a_drawing_is_kept_and_written_out_again():
     assert svg.clean_svg(cleaned) == cleaned
 
 
+def test_xml_attributes_and_an_inner_xlink_are_kept():
+    data = (
+        f'<svg {NS} xmlns:xlink="http://www.w3.org/1999/xlink">'
+        '<defs><path id="p" d="M0,0 H9"/></defs>'
+        '<text xml:space="preserve" xml:lang="en">a  b</text>'
+        '<use xlink:href="#p"/></svg>'
+    ).encode()
+
+    cleaned = svg.clean_svg(data)
+
+    assert b'xml:space="preserve"' in cleaned
+    assert b'xlink:href="#p"' in cleaned
+
+
 @pytest.mark.parametrize(
     "body, reason",
     [
@@ -63,6 +77,11 @@ def test_a_drawing_is_kept_and_written_out_again():
         ('<rect style="fill: url(//evil.test/x)"/>', "CSS"),
         ('<rect fill="url(https://evil.test/x)"/>', "fill"),
         ('<rect xmlns:ev="http://evil.test/ns" ev:x="1"/>', "attribute"),
+        (
+            '<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:title="x"'
+            ' href="#a"/>',
+            "attribute title",
+        ),
     ],
 )
 def test_anything_that_could_run_or_load_is_refused(body, reason):
