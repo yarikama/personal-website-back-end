@@ -80,7 +80,7 @@ def register(
     ) -> dict[str, Any]:
         """
         Copies an image from the web into the site's storage: for claude.ai,
-        which cannot send a file. JPEG, PNG, GIF or WebP, up to 20 MB, from
+        which cannot send a file. JPEG, PNG, GIF, WebP or SVG, up to 20 MB, from
         a public https URL. Returns its new URL.
         """
         try:
