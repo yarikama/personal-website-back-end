@@ -29,6 +29,7 @@ from mcp.server.auth.provider import TokenError
 from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image
 from sqlalchemy import delete
+from starlette.datastructures import Secret
 
 from core import config
 from db.dependency import get_db
@@ -39,7 +40,7 @@ from db.models.mcp_oauth import McpClient
 from db.models.projects import Project
 from main import get_application
 from mcp_server import server as mcp_server
-from services import google_oauth, remote_images, upload_tokens
+from services import google_oauth, remote_images, upload_tokens, visitors
 from services.content.lab_notes import read_time
 from services.image_jobs import STREAM, queue_variants
 from services.mcp_oauth import WritingOAuth, pending_key, redirect_allowed
@@ -1841,6 +1842,80 @@ async def test_graph_writes_are_logged_with_the_account(tool):
     assert any(
         f"MCP link_learning_nodes by {OWNER}: {PREFIX}one related {PREFIX}two" in line
         for line in lines
+    )
+
+
+# Visitors
+
+REPORT = visitors.Report(
+    since="2026-10-30",
+    until="2026-11-01",
+    pageviews=73,
+    visitors=29,
+    days=(
+        visitors.Count("2026-10-30", 4, 3),
+        visitors.Count("2026-10-31", 3, 3),
+        visitors.Count("2026-11-01", 66, 23),
+    ),
+    pages=(visitors.Count("/", 54, 28),),
+    referrers=(visitors.Count("", 34, 13),),
+    countries=(visitors.Count("US", 72, 28),),
+    devices=(visitors.Count("desktop", 53, 19),),
+)
+
+
+@pytest.fixture
+def vercel(monkeypatch):
+    """Vercel, faked: the days each report was asked for."""
+    asked: list[int] = []
+
+    async def report(days, http, vercel):
+        asked.append(days)
+        assert vercel.token == "token-1"
+        return REPORT
+
+    monkeypatch.setattr(visitors, "report", report)
+    monkeypatch.setattr(config, "VERCEL_TOKEN", Secret("token-1"))
+    return asked
+
+
+async def test_claude_reads_the_visitors_as_the_admin_page_shows_them(tool, vercel):
+    report = await tool("get_visitors", days=3)
+
+    assert vercel == [3]
+    assert (report["visitors"], report["pageviews"]) == (29, 73)
+    assert report["days"][-1] == {"date": "2026-11-01", "pageviews": 66, "visitors": 23}
+    assert report["referrers"] == [{"name": "", "pageviews": 34, "visitors": 13}]
+
+
+async def test_visitors_are_a_week_unless_asked(tool, vercel):
+    await tool("get_visitors")
+    assert vercel == [7]
+
+
+@pytest.mark.parametrize("days", [0, 31])
+async def test_visitors_are_one_to_thirty_days(tool, vercel, days):
+    assert "error" in await tool("get_visitors", days=days)
+    assert vercel == []
+
+
+async def test_without_a_vercel_token_there_are_no_visitors(tool, monkeypatch):
+    monkeypatch.setattr(config, "VERCEL_TOKEN", Secret(""))
+    result = await tool("get_visitors")
+    assert result["error"].endswith(
+        "Vercel Web Analytics is not set up (no VERCEL_TOKEN)."
+    )
+
+
+async def test_when_vercel_fails_claude_is_told_to_try_later(tool, monkeypatch):
+    async def failing(days, http, vercel):
+        raise visitors.VercelUnavailableError("Vercel answered 503")
+
+    monkeypatch.setattr(visitors, "report", failing)
+    monkeypatch.setattr(config, "VERCEL_TOKEN", Secret("token-1"))
+    result = await tool("get_visitors")
+    assert result["error"].endswith(
+        "Vercel Web Analytics is unavailable right now; try again later."
     )
 
 
