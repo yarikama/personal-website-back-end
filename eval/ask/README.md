@@ -14,7 +14,8 @@ object per line:
 | `points` | Facts a good answer contains, or for `refuse` and `injection`, what it must (not) do |
 
 The mix: 15 answerable questions in English, 10 in Chinese, 5 about proper
-nouns, 5 off-topic and 5 injection attempts.
+nouns, 5 off-topic, 5 injection attempts and 3 with no language of their
+own (`121212`, `???`, `asdf`), which should get an English reply.
 
 When site content changes, check that the `sources` and `points` still hold.
 
