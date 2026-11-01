@@ -163,7 +163,7 @@ async def test_an_image_over_the_limit_is_refused(storage, monkeypatch):
 @pytest.mark.parametrize(
     "data, folder, status, detail",
     [
-        (b"not an image", "notes", 400, "Not a JPEG, PNG, GIF or WebP image."),
+        (b"not an image", "notes", 400, "Not a JPEG, PNG, GIF, WebP or SVG image."),
         (image_bytes("PNG"), "anything", 400, "Unknown folder: anything"),
         (image_bytes("PNG") * 2, "notes", 413, "Image too large (over 20 MB)."),
     ],

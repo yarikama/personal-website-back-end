@@ -15,6 +15,7 @@ from services.images import (
     is_original,
     variant_key,
 )
+from services.svg import UnsafeSvgError, clean_svg, looks_like_svg
 
 # botocore waits 60 s to connect by default: far too long for a request.
 TIMEOUTS = AioConfig(connect_timeout=5, read_timeout=30, retries={"max_attempts": 3})
@@ -61,8 +62,8 @@ class R2StorageService:
     async def upload_image(self, file: UploadFile, folder: str = "images") -> str:
         """
         Upload an image to R2 and return its public URL. The bytes decide
-        what it is (services/images.identify_upload); the file name and the
-        type the browser sent are ignored.
+        what it is (services/images.identify_upload, or services/svg.py for
+        an SVG); the file name and the type the browser sent are ignored.
         """
         return await self.upload_bytes(await file.read(MAX_UPLOAD_BYTES + 1), folder)
 
@@ -73,10 +74,23 @@ class R2StorageService:
             raise UploadRefusedError(f"Unknown folder: {folder[:40]}")
         if len(data) > MAX_UPLOAD_BYTES:
             raise UploadTooLargeError("Image too large (over 20 MB).")
-        try:
-            ext, content_type = identify_upload(data)
-        except NotAnImageError as error:
-            raise UploadRefusedError("Not a JPEG, PNG, GIF or WebP image.") from error
+        extra = {}
+        if looks_like_svg(data):
+            try:
+                data = clean_svg(data)
+            except UnsafeSvgError as error:
+                raise UploadRefusedError(f"SVG refused: {error}.") from error
+            ext, content_type = "svg", "image/svg+xml"
+            # Shown by <img> only: opened by its URL, it downloads instead
+            # of rendering as a page (services/svg.py)
+            extra["ContentDisposition"] = "attachment"
+        else:
+            try:
+                ext, content_type = identify_upload(data)
+            except NotAnImageError as error:
+                raise UploadRefusedError(
+                    "Not a JPEG, PNG, GIF, WebP or SVG image."
+                ) from error
 
         # The UTC date, so a key does not depend on the machine's time zone.
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -89,6 +103,7 @@ class R2StorageService:
                 Key=key,
                 Body=data,
                 ContentType=content_type,
+                **extra,
             )
 
         return f"{self.public_url}/{key}"
