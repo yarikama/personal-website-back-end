@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from api.routes import (
     ask,
     ask_questions,
+    attention,
     auth,
     autocomplete,
     categories,
@@ -38,3 +39,4 @@ router.include_router(goal.router, tags=["admin"], prefix="/v1")
 router.include_router(planner.router, tags=["admin"], prefix="/v1")
 router.include_router(sitemap.router, tags=["seo"], prefix="/v1")
 router.include_router(visitors.router, tags=["admin"], prefix="/v1")
+router.include_router(attention.router, tags=["admin"], prefix="/v1")
