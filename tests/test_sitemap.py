@@ -4,7 +4,7 @@ other database tests. Every row's slug or name starts with PREFIX, and they
 are deleted afterwards.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 from xml.etree import ElementTree
 
 import pytest
@@ -177,3 +177,10 @@ def test_where_a_node_has_a_page(kind, ref, overview, path):
 def test_addresses_are_escaped():
     out = sitemap.xml(SITE, [sitemap.Url("/notes/a&b")])
     assert "<loc>https://www.yarikama.com/notes/a&amp;b</loc>" in out
+
+
+def test_lastmod_is_the_day_a_row_changed():
+    assert sitemap.day(datetime(2026, 11, 11, 23, 0, tzinfo=timezone.utc)) == date(
+        2026, 11, 11
+    )
+    assert sitemap.day(None) is None

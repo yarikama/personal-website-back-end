@@ -37,10 +37,9 @@ def learning_path(node: LearningNode) -> str | None:
     return None
 
 
-def day(moment: datetime | date | None) -> date | None:
-    if isinstance(moment, datetime):
-        return moment.date()
-    return moment
+def day(moment: datetime | None) -> date | None:
+    """The day a row last changed, for <lastmod>."""
+    return moment.date() if moment else None
 
 
 async def urls(db: AsyncSession) -> list[Url]:
