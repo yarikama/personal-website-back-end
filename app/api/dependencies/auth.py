@@ -1,3 +1,4 @@
+import time
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -62,3 +63,52 @@ async def get_current_admin(request: Request) -> str:
 
 
 CurrentAdmin = Annotated[str, Depends(get_current_admin)]
+
+
+# The to-dos may also be managed with a bearer token from the writing MCP
+# server's sign-in (services/mcp_oauth.py), so the owner's iPhone app can use
+# them. Only a token granted this scope works here: Claude's tokens for the
+# MCP server are not. A bearer token is never sent by a browser on its own,
+# so the Origin check the session cookie needs does not apply.
+TODOS_SCOPE = "todos"
+
+
+def bearer_token(request: Request) -> str | None:
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+    return token.strip()
+
+
+async def token_admin(request: Request) -> str | None:
+    """The admin a to-dos token belongs to, if the request carries one that
+    is valid, unexpired and granted TODOS_SCOPE."""
+    token = bearer_token(request)
+    provider = getattr(request.app.state, "mcp_oauth", None)
+    if token is None or provider is None:
+        return None
+    try:
+        access = await provider.load_access_token(token)
+    except Exception as error:
+        logger.warning(f"To-dos token could not be checked: {error!r}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporarily unavailable. Try again shortly.",
+            headers={"Retry-After": "30"},
+        ) from error
+    if access is None or TODOS_SCOPE not in access.scopes:
+        return None
+    if access.expires_at is not None and access.expires_at <= time.time():
+        return None
+    return access.subject
+
+
+async def get_todos_admin(request: Request) -> str:
+    """The admin, signed in on the site or holding a to-dos token."""
+    admin = await current_admin(request) or await token_admin(request)
+    if admin is None:
+        raise unauthorized("Not signed in")
+    return admin
+
+
+TodosAdmin = Annotated[str, Depends(get_todos_admin)]
