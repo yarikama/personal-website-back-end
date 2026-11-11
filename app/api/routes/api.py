@@ -14,6 +14,7 @@ from api.routes import (
     learnings,
     planner,
     projects,
+    sitemap,
     todos,
     upload,
     visitors,
@@ -35,4 +36,5 @@ router.include_router(todos.router, tags=["admin"], prefix="/v1")
 router.include_router(github.router, tags=["admin"], prefix="/v1")
 router.include_router(goal.router, tags=["admin"], prefix="/v1")
 router.include_router(planner.router, tags=["admin"], prefix="/v1")
+router.include_router(sitemap.router, tags=["seo"], prefix="/v1")
 router.include_router(visitors.router, tags=["admin"], prefix="/v1")

@@ -4,9 +4,9 @@ Lab notes are short technical essays about things I built, measured or learned. 
 
 ## Fields
 
-- **title**: what the note shows, in Title Case. A claim or a concrete situation beats a topic: "Two LLMs on One 8 GB Laptop GPU", "Why My Portfolio Chatbot Uses CAG, Not RAG".
+- **title**: what the note shows, in Title Case. A claim or a concrete situation beats a topic: "Two LLMs on One 8 GB Laptop GPU", "Why My Portfolio Chatbot Uses CAG, Not RAG". It is also the search result's title (the site adds " | Henry Hsu"), so keep it under about 60 characters and name the tools or ideas someone would search for.
 - **slug**: the title in lowercase kebab-case, ASCII only (`two-llms-on-one-8gb-laptop-gpu`). It becomes the URL, so don't change it once published.
-- **excerpt**: one or two sentences, about 170 to 260 characters. The first states the problem or the surprise; the second says what the note covers. It shows on the list page and in link previews, so it has to stand alone.
+- **excerpt**: one or two sentences, about 170 to 260 characters. The first states the problem or the surprise; the second says what the note covers. It shows on the list page and in link previews, so it has to stand alone. Search engines show it cut at about 160 characters, so the first sentence has to make sense on its own within that.
 - **tags**: 2 to 5 proper nouns or established terms, in their usual capitalisation ("Kubernetes", "Argo CD", "LLM Serving"). Reuse existing tags (`list_lab_note_tags`) before inventing one.
 - **date**: the day the note is published.
 - **read_time**: computed from the body; never set it by hand.

@@ -43,6 +43,11 @@ ADMIN_EMAILS: frozenset[str] = frozenset(
 )
 # Where the browser goes after signing in (its /admin pages).
 SITE_URL: str = config("SITE_URL", default="https://yarikama.com")
+# Where the site's pages live for search engines: the host yarikama.com
+# redirects to, used for the sitemap's addresses.
+CANONICAL_SITE_URL: str = config(
+    "CANONICAL_SITE_URL", default="https://www.yarikama.com"
+)
 # How long a sign-in lasts. Sessions live in Redis, so signing out ends one
 # at once.
 ADMIN_SESSION_HOURS: int = config("ADMIN_SESSION_HOURS", cast=int, default=12)
