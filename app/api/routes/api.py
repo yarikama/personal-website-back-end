@@ -12,6 +12,7 @@ from api.routes import (
     goal,
     lab_notes,
     learnings,
+    planner,
     projects,
     todos,
     upload,
@@ -33,4 +34,5 @@ router.include_router(ask_questions.router, tags=["ask"], prefix="/v1")
 router.include_router(todos.router, tags=["admin"], prefix="/v1")
 router.include_router(github.router, tags=["admin"], prefix="/v1")
 router.include_router(goal.router, tags=["admin"], prefix="/v1")
+router.include_router(planner.router, tags=["admin"], prefix="/v1")
 router.include_router(visitors.router, tags=["admin"], prefix="/v1")

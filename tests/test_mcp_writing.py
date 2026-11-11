@@ -33,14 +33,22 @@ from starlette.datastructures import Secret
 
 from core import config
 from db.dependency import get_db
+from db.models.admin_setting import AdminSetting
 from db.models.category import Category
 from db.models.lab_notes import LabNote
 from db.models.learnings import LearningNode
 from db.models.mcp_oauth import McpClient
 from db.models.projects import Project
+from db.models.todo import AdminTodo
 from main import get_application
 from mcp_server import server as mcp_server
-from services import google_oauth, remote_images, upload_tokens, visitors
+from services import (
+    google_oauth,
+    planner,
+    remote_images,
+    upload_tokens,
+    visitors,
+)
 from services.content.lab_notes import read_time
 from services.image_jobs import STREAM, queue_variants
 from services.mcp_oauth import WritingOAuth, pending_key, redirect_allowed
@@ -1933,3 +1941,74 @@ async def test_when_vercel_fails_claude_is_told_to_try_later(tool, monkeypatch):
 )
 def test_read_time_counts_words_and_cjk_characters(content, expected):
     assert read_time(content) == expected
+
+
+# The morning plan
+
+
+@pytest.fixture
+def plan_rows(sync_sessions):
+    """The plan's items (their text starts with PREFIX) and its settings,
+    deleted afterwards."""
+
+    def clean():
+        with sync_sessions() as db:
+            db.execute(delete(AdminTodo).where(AdminTodo.text.startswith(PREFIX)))
+            db.execute(
+                delete(AdminSetting).where(
+                    AdminSetting.key.in_((planner.GOALS, planner.NOTES))
+                )
+            )
+            db.commit()
+
+    clean()
+    yield
+    clean()
+
+
+def plan_item(text, bucket="today", reason="Due Friday"):
+    return {"text": f"{PREFIX}{text}", "bucket": bucket, "reason": reason}
+
+
+async def test_claude_lays_out_the_day_and_reads_it_back(tool, plan_rows):
+    day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+    laid = await tool(
+        "set_todays_plan",
+        day=day,
+        items=[plan_item("hw4"), plan_item("recruiter", bucket="week")],
+        notes="Interviewing this month",
+    )
+    context = await tool("get_planner_context", day=day)
+
+    assert [(i["text"], i["bucket"]) for i in laid["items"]] == [
+        (f"{PREFIX}hw4", "today"),
+        (f"{PREFIX}recruiter", "week"),
+    ]
+    assert context["notes"] == "Interviewing this month"
+    mine = [t for t in context["open"] if t["text"].startswith(PREFIX)]
+    assert {t["id"] for t in mine} == {i["id"] for i in laid["items"]}
+    assert all(t["source"] == "claude" for t in mine)
+
+
+async def test_a_plan_for_a_day_that_is_not_today_is_refused(tool, plan_rows):
+    assert "error" in await tool("get_planner_context", day="2001-01-01")
+    assert "error" in await tool(
+        "set_todays_plan", day="2001-01-01", items=[plan_item("hw4")]
+    )
+
+
+async def test_a_plan_with_the_same_item_twice_is_refused(tool, plan_rows):
+    day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    result = await tool(
+        "set_todays_plan", day=day, items=[plan_item("hw4"), plan_item("hw4")]
+    )
+    assert "same text" in result["error"]
+
+
+async def test_a_plan_item_without_a_reason_is_refused(tool, plan_rows):
+    day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    result = await tool(
+        "set_todays_plan", day=day, items=[{"text": f"{PREFIX}hw4", "bucket": "today"}]
+    )
+    assert "error" in result

@@ -17,6 +17,10 @@ class AdminTodo(Base):
     carries over to the days after; `done_on` is the day it was done.
     Daily items (`daily_key`) are added once per day; removing one only
     hides it, so it is not added again that day.
+
+    `source` says who put it there: the owner, the daily items, or Claude's
+    morning plan (services/planner.py), which also files its items under a
+    `bucket` and says in `reason` why it chose each.
     """
 
     __tablename__ = "admin_todos"
@@ -39,6 +43,13 @@ class AdminTodo(Base):
     daily_key: Mapped[str | None] = mapped_column(String(32))
     done_on: Mapped[dt.date | None] = mapped_column(Date)
     removed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # "owner", "daily" or "claude".
+    source: Mapped[str] = mapped_column(
+        String(16), default="owner", server_default="owner"
+    )
+    # The morning plan's: "today", "week" or "later". None for the others.
+    bucket: Mapped[str | None] = mapped_column(String(16))
+    reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
