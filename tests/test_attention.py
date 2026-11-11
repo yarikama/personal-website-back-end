@@ -5,7 +5,7 @@ named "test-device" and deleted afterwards.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,7 +42,7 @@ def event(kind="earning", device=DEVICE, **data):
     return {
         "id": str(uuid.uuid4()),
         "kind": kind,
-        "at": datetime(2026, 11, 11, 9, 30, tzinfo=UTC).isoformat(),
+        "at": datetime(2026, 11, 11, 9, 30, tzinfo=timezone.utc).isoformat(),
         "device": device,
         "data": data,
     }
@@ -113,3 +113,9 @@ def test_needs_the_owner(sync_sessions, db_override):
     app.dependency_overrides[get_db] = db_override
     response = TestClient(app).get(EVENTS)
     assert response.status_code == 401
+
+
+def test_sending_nothing_is_fine(client):
+    response = client.post(EVENTS, json={"events": []})
+    assert response.status_code == 200
+    assert response.json()["data"]["received"] == 0
