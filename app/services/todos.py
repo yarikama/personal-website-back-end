@@ -37,7 +37,13 @@ async def add_daily(db: AsyncSession, day: date) -> None:
         if daily.key in have:
             continue
         db.add(
-            AdminTodo(text=daily.text, href=daily.href, day=day, daily_key=daily.key)
+            AdminTodo(
+                text=daily.text,
+                href=daily.href,
+                day=day,
+                daily_key=daily.key,
+                source="daily",
+            )
         )
         try:
             await db.commit()
@@ -64,12 +70,16 @@ async def for_day(db: AsyncSession, day: date) -> list[AdminTodo]:
 
 async def history(db: AsyncSession, limit: int) -> list[str]:
     """What the owner has written as to-dos, most recent first and each
-    once, for completing a new one as it is typed. Daily items and removed
-    ones are left out."""
+    once, for completing a new one as it is typed. Daily items, the morning
+    plan's and removed ones are left out."""
     latest = func.max(AdminTodo.created_at)
     rows = await db.execute(
         select(AdminTodo.text, latest)
-        .where(AdminTodo.daily_key.is_(None), AdminTodo.removed.is_(False))
+        .where(
+            AdminTodo.source == "owner",
+            AdminTodo.daily_key.is_(None),
+            AdminTodo.removed.is_(False),
+        )
         .group_by(AdminTodo.text)
         .order_by(latest.desc())
         .limit(limit)
