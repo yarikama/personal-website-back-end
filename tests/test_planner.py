@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
+from api.dependencies import auth
 from api.dependencies.auth import get_current_admin
 from db.dependency import get_db
 from db.models.admin_setting import AdminSetting
@@ -47,6 +48,10 @@ def client(factory, db_override):
     app = get_application()
     app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
+    # The to-do routes' own check, once they take the Attention app's token
+    # (#109); the planner's routes take the session only.
+    if todos_admin := getattr(auth, "get_todos_admin", None):
+        app.dependency_overrides[todos_admin] = lambda: "owner@example.com"
     return TestClient(app)
 
 
