@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
-from api.dependencies.auth import get_current_admin
+from api.dependencies.auth import get_current_admin, get_todos_admin
 from db.dependency import get_db
 from db.models.todo import AdminTodo
 from main import get_application
@@ -43,6 +43,7 @@ def client(factory, db_override):
     app = get_application()
     app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_current_admin] = lambda: "owner@example.com"
+    app.dependency_overrides[get_todos_admin] = lambda: "owner@example.com"
     return TestClient(app)
 
 
@@ -173,6 +174,7 @@ def test_a_blank_item_is_refused(client):
 
 def test_only_the_admin_has_them(client):
     client.app.dependency_overrides.pop(get_current_admin)
+    client.app.dependency_overrides.pop(get_todos_admin)
     assert (
         client.get("/api/v1/admin/todos", params={"day": "2001-01-01"}).status_code
         == 401

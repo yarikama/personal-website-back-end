@@ -169,7 +169,9 @@ MCP_ISSUER_URL: str = config("MCP_ISSUER_URL", default="https://api.yarikama.com
 # Anyone may register a client (RFC 7591, how claude.ai and Claude Code
 # connect), but only with redirect URIs from this list, so an authorization
 # code is only ever sent to one of these. "*" stands for any port, for
-# Claude Code's callback on the owner's own machine.
+# Claude Code's callback on the owner's own machine. attention://oauth/callback
+# is the owner's Attention iPhone app, which signs in the same way to manage
+# the to-dos (scope "todos", see api/dependencies/auth.py).
 MCP_REDIRECT_URIS: tuple[str, ...] = tuple(
     config(
         "MCP_REDIRECT_URIS",
@@ -178,7 +180,8 @@ MCP_REDIRECT_URIS: tuple[str, ...] = tuple(
             "https://claude.ai/api/mcp/auth_callback,"
             "https://claude.com/api/mcp/auth_callback,"
             "http://localhost:*/callback,"
-            "http://127.0.0.1:*/callback"
+            "http://127.0.0.1:*/callback,"
+            "attention://oauth/callback"
         ),
     )
 )
