@@ -19,7 +19,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import APIRouter, Form, Request, Response, status
@@ -196,10 +196,18 @@ def consent_page(
         if issued
         else "at an unknown time"
     )
+    name = client.client_name or "An unnamed client"
+    goes_to = str(params.redirect_uri)
+    # The client's mark on the page: its first letter, or ? for a name
+    # without one.
+    initial = next((c for c in name if c.isalnum()), "?").upper()
     return TEMPLATES.get_template("mcp_consent.html").render(
-        name=client.client_name or "An unnamed client",
+        name=name,
+        initial=initial,
         registered=registered,
-        goes_to=str(params.redirect_uri),
+        # The host first, where a look tells claude.ai from anything else.
+        goes_to_host=urlsplit(goes_to).netloc or goes_to,
+        goes_to=goes_to,
         id=id,
         token=token,
     )
