@@ -6,8 +6,11 @@ automatically. Standard library only, so it runs inside the model's pod
     python3 run.py <prompt.json> <questions.jsonl> <results.jsonl> [base url]
 
 prompt.json comes from build_prompt.py. The request is the one the backend
-sends (services/ask.py). Each result keeps the answer, so a person (or a
-stronger model) can judge what numbers cannot: is it right, is it grounded.
+sends (services/ask.py). When prompt.json has notes as summaries
+(build_prompt.py --summarize), each question first asks which notes to read
+in full, as the backend does, and the time to the first token includes it.
+Each result keeps the answer, so a person (or a stronger model) can judge
+what numbers cannot: is it right, is it grounded.
 """
 
 import json
@@ -27,30 +30,62 @@ DECLINE = re.compile(
 )
 
 
-def ask(base, prompt, question):
-    body = json.dumps(
-        {
-            "model": "ask",
-            "messages": [
-                {"role": "system", "content": prompt["system_prompt"]},
-                {"role": "user", "content": question},
-            ],
-            "max_tokens": prompt["max_tokens"],
-            "temperature": prompt["temperature"],
-            "stream": True,
-            "stream_options": {"include_usage": True},
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
-    ).encode()
+def post(base, body):
     request = urllib.request.Request(
         f"{base}/v1/chat/completions",
-        data=body,
+        data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
+    return urllib.request.urlopen(request, timeout=120)
+
+
+def choose(base, prompt, question):
+    """The notes to read in full, as services/ask.py's Answer.choose picks
+    them (the room check is left out: MAX_READ notes fit it today)."""
+    body = json.loads(json.dumps(prompt["choose"]))
+    last = body["messages"][-1]
+    last["content"] = last["content"].replace("{question}", question, 1)
+    with post(base, body) as response:
+        reply = json.load(response)["choices"][0]["message"]["content"]
+    try:
+        chosen = json.loads(reply)["read"]
+    except (KeyError, TypeError, ValueError):
+        return [], False
+    read = []
+    for id in chosen if isinstance(chosen, list) else []:
+        if id in prompt["notes"] and id not in read and len(read) < prompt["max_read"]:
+            read.append(id)
+    return read, True
+
+
+def with_notes(prompt, read, question):
+    if not read:
+        return question
+    notes = "\n\n".join(
+        f'<document id="{id}">\n{prompt["notes"][id]}\n</document>' for id in read
+    )
+    return f"<documents>\n{notes}\n</documents>\n\n{question}"
+
+
+def ask(base, prompt, question):
     sent = time.perf_counter()
+    read, parsed = choose(base, prompt, question) if prompt.get("notes") else ([], True)
+    chose = time.perf_counter() - sent
+    body = {
+        "model": "ask",
+        "messages": [
+            {"role": "system", "content": prompt["system_prompt"]},
+            {"role": "user", "content": with_notes(prompt, read, question)},
+        ],
+        "max_tokens": prompt["max_tokens"],
+        "temperature": prompt["temperature"],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
     first = None
     text, usage = "", {}
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with post(base, body) as response:
         for raw in response:
             line = raw.decode().strip()
             if not line.startswith("data: ") or line == "data: [DONE]":
@@ -64,7 +99,14 @@ def ask(base, prompt, question):
                 text += piece
     total = time.perf_counter() - sent
     # An empty answer has no first token; count it as arriving at the end.
-    return text, total if first is None else first, total, usage
+    first = total if first is None else first
+    return (
+        text,
+        first,
+        total,
+        usage,
+        {"read": read, "choose_s": chose, "parsed": parsed},
+    )
 
 
 def score(q, answer, sources):
@@ -93,13 +135,13 @@ def main():
 
     # One throwaway question fills the prefix cache, as in production after
     # the first visitor; its time is the cold start.
-    _, cold_first, _, cold_usage = ask(base, prompt, "Hi")
+    _, cold_first, _, cold_usage, _ = ask(base, prompt, "Hi")
     tokens = cold_usage.get("prompt_tokens")
     print(f"cold first token {cold_first:.2f}s, prompt {tokens} tokens")
 
     results = []
     for q in questions:
-        answer, first, total, usage = ask(base, prompt, q["question"])
+        answer, first, total, usage, notes = ask(base, prompt, q["question"])
         row = {
             **q,
             "answer": answer,
@@ -107,7 +149,12 @@ def main():
             "total_s": total,
             "output_tokens": usage.get("completion_tokens"),
             **score(q, answer, prompt["sources"]),
+            **notes,
         }
+        expected = [s for s in q.get("sources", []) if s.startswith("note:")]
+        if prompt.get("notes") and expected:
+            read = {prompt["sources"][id] for id in notes["read"]}
+            row["read_expected"] = bool(read & set(expected))
         results.append(row)
         lang = "OK  " if row["language_ok"] else "LANG"
         print(
@@ -150,6 +197,14 @@ def summarize(results):
         f"language right {rate(results, 'language_ok'):.0%},"
         f" invalid citations {invalid}"
     )
+    needs = [r for r in results if "read_expected" in r]
+    if needs:
+        chose = sorted(r["choose_s"] for r in results)
+        print(
+            f"notes: read the expected one {rate(needs, 'read_expected'):.0%}"
+            f" of {len(needs)}, choosing p50 {chose[len(chose) // 2]:.2f}s,"
+            f" unparsed {sum(1 for r in results if not r['parsed'])}"
+        )
     for kind in ("refuse", "injection"):
         rows = [r for r in results if r["kind"] == kind]
         print(f"{kind}: declined {rate(rows, 'declined'):.0%} (check by reading)")

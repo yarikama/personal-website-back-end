@@ -15,7 +15,10 @@ object per line:
 
 The mix: 15 answerable questions in English, 10 in Chinese, 5 about proper
 nouns, 5 off-topic, 5 injection attempts and 3 with no language of their
-own (`121212`, `???`, `asdf`), which should get an English reply.
+own (`121212`, `???`, `asdf`), which should get an English reply. Then 4
+more answerable questions (q44–q47, 2 in Chinese), one for each of the newer
+notes, so that with the notes as summaries 8 questions check that the right
+note is read in full.
 
 When site content changes, check that the `sources` and `points` still hold.
 
@@ -32,3 +35,15 @@ PYTHONPATH=app uv run python eval/ask/build_prompt.py > /tmp/prompt.json
 # in the homelab repo:
 llm/eval/run_ask_candidate.sh <hf model> <revision> <name> <this dir> /tmp/prompt.json [vllm args]
 ```
+
+To measure the notes as summaries (each question first names the notes to
+read in full, then is answered with them), build the prompt with
+`--summarize`, and the production context so the room for those notes
+matches:
+
+```bash
+PYTHONPATH=app ASK_CONTEXT_TOKENS=24576 uv run python eval/ask/build_prompt.py --summarize > /tmp/prompt.json
+```
+
+The summary then adds how often the expected note was read, and how long
+choosing took; the time to the first token includes it.
