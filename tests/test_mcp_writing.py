@@ -465,10 +465,12 @@ async def test_the_consent_page_names_the_client_and_where_the_code_goes(client)
     assert "<script>" not in page.text
     assert CLAUDE in page.text
     # The host on its own, where a look tells claude.ai from anything else.
-    assert "<dd>claude.ai<small>" in page.text
-    # The client's mark: the first letter of its name.
-    assert '<div class="node">S</div>' in page.text
-    assert page.headers["content-security-policy"].startswith("default-src 'none'")
+    assert "<td>claude.ai<small>" in page.text
+    policy = page.headers["content-security-policy"]
+    assert policy.startswith("default-src 'none';")
+    # Styles and fonts from the site's font host only, and no script at all.
+    assert "script-src" not in policy
+    assert "style-src 'unsafe-inline' https://fonts.googleapis.com;" in policy
     assert page.headers["x-frame-options"] == "DENY"
     assert page.headers["cache-control"] == "no-store"
 

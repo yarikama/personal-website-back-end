@@ -49,10 +49,13 @@ TOKEN_TIMEOUT_SECONDS = 10
 # Ties the consent page's answer to the page this API served: a form posted
 # from another site comes without it (SameSite=Strict), however it is made.
 CONSENT_COOKIE = "__Host-mcp_consent"
-# The consent page's own policy, in place of the API's: no script, its
-# inline style, and a form whose answer leads on to Google sign-in.
+# The consent page's own policy, in place of the API's: no script; its
+# inline style and the site's fonts from where the site loads them; the
+# site's icon; and a form whose answer leads on to Google sign-in.
 CONSENT_CSP = (
-    "default-src 'none'; style-src 'unsafe-inline'; "
+    "default-src 'none'; "
+    "style-src 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; img-src https://www.yarikama.com; "
     "form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
 )
 # Escaping on for every template, whatever its file is called, rather than
@@ -196,20 +199,17 @@ def consent_page(
         if issued
         else "at an unknown time"
     )
-    name = client.client_name or "An unnamed client"
     goes_to = str(params.redirect_uri)
-    # The client's mark on the page: its first letter, or ? for a name
-    # without one.
-    initial = next((c for c in name if c.isalnum()), "?").upper()
     return TEMPLATES.get_template("mcp_consent.html").render(
-        name=name,
-        initial=initial,
+        name=client.client_name or "An unnamed client",
         registered=registered,
         # The host first, where a look tells claude.ai from anything else.
         goes_to_host=urlsplit(goes_to).netloc or goes_to,
         goes_to=goes_to,
         id=id,
         token=token,
+        # The footer's, as on the site's pages.
+        year=datetime.now(timezone.utc).year,
     )
 
 
