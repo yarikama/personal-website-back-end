@@ -12,8 +12,9 @@ When the notes no longer fit in full, they go into the system prompt as
 summaries (title, tags, excerpt): still the same for every question, so
 still cached. Each question then takes two calls. The first shows the model
 the question and asks, in JSON it cannot get wrong (vLLM's structured
-output), which notes it needs to read in full; the second answers with those
-notes added to the question. The model chooses from summaries it can read,
+output), whether it needs any note in full and which; the second answers
+with those notes at the end of the system prompt. The model chooses from
+summaries it can read,
 so a question in Chinese still finds a note in English, which keyword search
 would not.
 """
@@ -83,7 +84,8 @@ PROMPT_TOKENS = Gauge(
 PROMPT_BUDGET = Gauge(
     "ask_prompt_budget_tokens",
     "Tokens the system prompt may use: the model's context minus the "
-    "question and the answer.",
+    "question and the answer, and, when the notes are summaries, minus the "
+    "room kept for the notes read in full.",
 )
 DROPPED = Gauge(
     "ask_documents_dropped",
@@ -202,15 +204,21 @@ still come only from the documents."""
 # Added to the rules when the notes are summaries.
 SUMMARY_RULE = """
 - Some notes appear below only as a summary (summary="yes"). The full text \
-of those the question needs comes with the question, in <documents>; cite \
+of those the question needs follows the documents, in <full_text>; cite \
 them by the same ids. From a summary alone, say only what the summary says."""
 
 # The first of two calls, after the question: which notes to read in full.
+# Asked for a yes or no first: told only to list notes, the 4B model listed
+# three for nearly every message, off-topic ones and attacks included
+# (eval/ask/README.md, "Choosing notes").
 CHOOSE = """\
-(Do not answer yet.) Which of the notes shown only as a summary do you need \
-to read in full to answer this? Give their ids, most useful first, at most \
-{max_read}. Give none when the other documents are enough, or when the \
-message is not a question about Henry's work."""
+(Do not answer yet.) Most questions need no note in full: his jobs, \
+studies, skills and projects are in the resume and the projects. A question \
+about what a note says does need that note. Decide: is this question about \
+the topic of one of the notes shown only as a summary, and does it need more \
+than that summary says? Set needs_full_text to false otherwise, also when \
+the message is not a question about Henry's work. Only when it is true, list \
+those notes, most useful first, at most {max_read}."""
 
 
 def _project_text(project: Project) -> str:
@@ -379,7 +387,7 @@ async def build_snapshot(db: AsyncSession, key: ContentKey) -> Snapshot:
 
     tokens = estimate_tokens(rendered.prompt)
     PROMPT_TOKENS.set(tokens)
-    PROMPT_BUDGET.set(budget)
+    PROMPT_BUDGET.set(limit)
     DROPPED.set(len(dropped))
     SUMMARIZED.set(len(rendered.notes))
     if dropped:
@@ -519,29 +527,38 @@ class Answer:
         return chat
 
     def messages(self) -> list[dict[str, str]]:
-        """The chat sent to the model for the answer: the notes it reads in
-        full come with the question, so the system prompt before them stays
-        the same for every question, and cached."""
-        if not self.read:
-            return self._chat(self.message())
-        notes = "\n\n".join(document(id, self.snapshot.notes[id]) for id in self.read)
-        return self._chat(f"<documents>\n{notes}\n</documents>\n\n{self.message()}")
+        """
+        The chat sent to the model for the answer. The notes it reads in
+        full go at the end of the system prompt: what comes before them is
+        the same for every question, and stays cached. In the visitor's
+        message instead, the model took them for something the visitor
+        wrote, and attacks got through (eval/ask/README.md).
+        """
+        chat = self._chat(self.message())
+        if self.read:
+            notes = "\n\n".join(
+                document(id, self.snapshot.notes[id]) for id in self.read
+            )
+            chat[0]["content"] += f"\n\n<full_text>\n{notes}\n</full_text>"
+        return chat
 
     def choose_request(self) -> dict[str, Any]:
         """The first call when the notes are summaries: the same chat, with
         the question, asking which notes to read. Its reply is held to JSON
         naming only those notes, so even a small model gets the form right."""
         ids = list(self.snapshot.notes)
+        # In this order: the decision, then the notes.
         schema = {
             "type": "object",
             "properties": {
+                "needs_full_text": {"type": "boolean"},
                 "read": {
                     "type": "array",
                     "items": {"type": "string", "enum": ids},
                     "maxItems": MAX_READ,
-                }
+                },
             },
-            "required": ["read"],
+            "required": ["needs_full_text", "read"],
             "additionalProperties": False,
         }
         instruction = CHOOSE.format(max_read=MAX_READ)
@@ -590,8 +607,8 @@ class Answer:
                 f"{response.status_code}: {response.text[:200]!r}"
             )
         try:
-            reply = response.json()["choices"][0]["message"]["content"]
-            chosen = json.loads(reply)["read"]
+            reply = json.loads(response.json()["choices"][0]["message"]["content"])
+            chosen = reply["read"] if reply["needs_full_text"] is not False else []
             if not isinstance(chosen, list):
                 raise TypeError(f"not a list: {chosen!r}")
         except (KeyError, IndexError, TypeError, ValueError) as error:
