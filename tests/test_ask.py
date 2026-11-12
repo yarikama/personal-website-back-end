@@ -230,6 +230,11 @@ async def test_notes_that_do_not_fit_in_full_go_in_as_summaries(
         ask.estimate_tokens(full.system_prompt) - 1 - ask.estimate_tokens(prompt)
     )
     assert REGISTRY.get_sample_value("ask_notes_summarized") == 2
+    # What the summaries may use, so the 70% alert still comes before any
+    # document is left out.
+    assert REGISTRY.get_sample_value("ask_prompt_budget_tokens") == (
+        ask.estimate_tokens(full.system_prompt) - 1 - ask.READ_TOKENS
+    )
     assert REGISTRY.get_sample_value("ask_documents_dropped") == 0
 
 
@@ -995,7 +1000,9 @@ def two_calls(model, monkeypatch):
 
 
 def test_while_every_note_is_in_full_there_is_one_call(two_calls, client):
-    sent = two_calls('{"read": []}', model_stream(["Hi."]), snap=SNAPSHOT)
+    sent = two_calls(
+        '{"needs_full_text": false, "read": []}', model_stream(["Hi."]), snap=SNAPSHOT
+    )
     client.post("/api/v1/ask", json={"question": "Hi?"})
     assert [body.get("stream") for body in sent] == [True]
 
@@ -1004,36 +1011,58 @@ def test_the_model_names_the_notes_to_read_then_answers_with_them(two_calls, cli
     from prometheus_client import REGISTRY
 
     read_before = REGISTRY.get_sample_value("ask_notes_read_sum") or 0
-    sent = two_calls('{"read": ["N1"]}', model_stream(["It rotates [N1]."]))
+    sent = two_calls(
+        '{"needs_full_text": true, "read": ["N1"]}', model_stream(["It rotates [N1]."])
+    )
 
     response = client.post("/api/v1/ask", json={"question": "What is SVD?"})
 
     choose, answer = sent
-    # Held to JSON naming only the summarized notes.
+    # Held to JSON: the decision first, then only the summarized notes.
     schema = choose["response_format"]["json_schema"]["schema"]
+    assert list(schema["properties"]) == ["needs_full_text", "read"]
     assert schema["properties"]["read"]["items"]["enum"] == ["N1"]
     assert schema["properties"]["read"]["maxItems"] == ask.MAX_READ
     assert "stream" not in choose
     assert choose["temperature"] == 0
     assert choose["messages"][-1]["content"].startswith("What is SVD?\n\n(Do not")
-    # The same system prompt both times: cached once for every question.
-    assert choose["messages"][0] == answer["messages"][0]
-    assert answer["messages"][-1]["content"] == (
-        '<documents>\n<document id="N1">\nSVD (2026-02-05)\n\n## Rotations\n'
-        "Any matrix is a rotation.\n</document>\n</documents>\n\nWhat is SVD?"
+    # The note goes at the end of the system prompt, after what every
+    # question shares (cached); the visitor's message is only the question.
+    assert choose["messages"][0]["content"] == "RULES AND SUMMARIES"
+    assert answer["messages"][0]["content"] == (
+        'RULES AND SUMMARIES\n\n<full_text>\n<document id="N1">\nSVD (2026-02-05)'
+        "\n\n## Rotations\nAny matrix is a rotation.\n</document>\n</full_text>"
     )
+    assert answer["messages"][-1]["content"] == "What is SVD?"
     assert events(response.text)[-1][1]["citations"][0]["id"] == "N1"
     assert REGISTRY.get_sample_value("ask_notes_read_sum") == read_before + 1
 
 
 def test_a_question_that_needs_no_note_is_sent_as_it_is(two_calls, client):
-    sent = two_calls('{"read": []}', model_stream(["He studied at Rice [R1]."]))
+    sent = two_calls(
+        '{"needs_full_text": false, "read": []}',
+        model_stream(["He studied at Rice [R1]."]),
+    )
     client.post("/api/v1/ask", json={"question": "Where did he study?"})
-    assert sent[1]["messages"][-1]["content"] == "Where did he study?"
+    assert sent[1]["messages"] == [
+        {"role": "system", "content": "RULES AND SUMMARIES"},
+        {"role": "user", "content": "Where did he study?"},
+    ]
+
+
+def test_notes_listed_after_deciding_none_are_not_read(two_calls, client):
+    # The schema cannot tie the list to the decision: the decision wins.
+    sent = two_calls(
+        '{"needs_full_text": false, "read": ["N1"]}', model_stream(["Hi [R1]."])
+    )
+    client.post("/api/v1/ask", json={"question": "Hi?"})
+    assert sent[1]["messages"][0]["content"] == "RULES AND SUMMARIES"
 
 
 def test_the_note_a_passage_is_from_is_always_read(two_calls, client):
-    sent = two_calls('{"read": []}', model_stream(["It rotates [N1]."]))
+    sent = two_calls(
+        '{"needs_full_text": false, "read": []}', model_stream(["It rotates [N1]."])
+    )
     client.post(
         "/api/v1/ask",
         json={
@@ -1042,12 +1071,18 @@ def test_the_note_a_passage_is_from_is_always_read(two_calls, client):
             "page": "/notes/svd",
         },
     )
-    assert sent[1]["messages"][-1]["content"].startswith(
-        '<documents>\n<document id="N1">'
-    )
+    assert '<full_text>\n<document id="N1">' in sent[1]["messages"][0]["content"]
 
 
-@pytest.mark.parametrize("choice", ["not json", '{"notes": ["N1"]}', '{"read": "N1"}'])
+@pytest.mark.parametrize(
+    "choice",
+    [
+        "not json",
+        '{"read": ["N1"]}',
+        '{"needs_full_text": true, "notes": ["N1"]}',
+        '{"needs_full_text": true, "read": "N1"}',
+    ],
+)
 def test_an_unreadable_choice_is_answered_from_the_summaries(two_calls, client, choice):
     from prometheus_client import REGISTRY
 
@@ -1057,7 +1092,7 @@ def test_an_unreadable_choice_is_answered_from_the_summaries(two_calls, client, 
     response = client.post("/api/v1/ask", json={"question": "What is SVD?"})
 
     assert response.status_code == 200
-    assert sent[1]["messages"][-1]["content"] == "What is SVD?"
+    assert sent[1]["messages"][0]["content"] == "RULES AND SUMMARIES"
     assert REGISTRY.get_sample_value("ask_choose_failed_total") == failed + 1
 
 

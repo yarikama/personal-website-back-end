@@ -48,7 +48,8 @@ def choose(base, prompt, question):
     with post(base, body) as response:
         reply = json.load(response)["choices"][0]["message"]["content"]
     try:
-        chosen = json.loads(reply)["read"]
+        reply = json.loads(reply)
+        chosen = reply["read"] if reply["needs_full_text"] is not False else []
     except (KeyError, TypeError, ValueError):
         return [], False
     read = []
@@ -58,13 +59,14 @@ def choose(base, prompt, question):
     return read, True
 
 
-def with_notes(prompt, read, question):
+def with_notes(prompt, read):
+    """The system prompt, with the notes read in full at its end."""
     if not read:
-        return question
+        return prompt["system_prompt"]
     notes = "\n\n".join(
         f'<document id="{id}">\n{prompt["notes"][id]}\n</document>' for id in read
     )
-    return f"<documents>\n{notes}\n</documents>\n\n{question}"
+    return f"{prompt['system_prompt']}\n\n<full_text>\n{notes}\n</full_text>"
 
 
 def ask(base, prompt, question):
@@ -74,8 +76,8 @@ def ask(base, prompt, question):
     body = {
         "model": "ask",
         "messages": [
-            {"role": "system", "content": prompt["system_prompt"]},
-            {"role": "user", "content": with_notes(prompt, read, question)},
+            {"role": "system", "content": with_notes(prompt, read)},
+            {"role": "user", "content": question},
         ],
         "max_tokens": prompt["max_tokens"],
         "temperature": prompt["temperature"],
