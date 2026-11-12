@@ -8,6 +8,10 @@ production byte for byte, apart from the order of documents created in the
 same instant.
 
     PYTHONPATH=app uv run python eval/ask/build_prompt.py > prompt.json
+
+With --summarize, the notes go in as summaries and prompt.json carries
+what run.py needs for the two calls: the notes' full texts and the request
+that asks which to read (ASK_SUMMARIZE_NOTES in production).
 """
 
 import json
@@ -22,6 +26,8 @@ from services import ask
 LIMIT = 100  # the API's page size cap
 
 API = "https://api.yarikama.com/api/v1"
+# Stands for each evaluation question in the request that chooses notes.
+QUESTION = "{question}"
 
 
 def get(path: str):
@@ -64,13 +70,18 @@ def main() -> None:
             title=full["title"],
             slug=full["slug"],
             tags=full["tags"],
+            excerpt=full["excerpt"],
             content=full["content"],
             date=date.fromisoformat(full["date"]),
         )
         note_docs.append((obj, ask._note_text(obj)))
 
-    prompt, _, _ = ask._render(project_docs, note_docs)
-    if ask.estimate_tokens(prompt) > ask.prompt_budget():
+    summarize = "--summarize" in sys.argv[1:]
+    rendered = ask._render(project_docs, note_docs, summarize)
+    prompt = rendered.prompt
+    tokens = ask.estimate_tokens(prompt)
+    budget = ask.prompt_budget()
+    if tokens > (budget - ask.READ_TOKENS if summarize else budget):
         # Production would leave the oldest documents out (build_snapshot)
         # and renumber the rest; this prompt would no longer match it.
         sys.exit("The prompt is over its budget: production would drop documents.")
@@ -82,17 +93,31 @@ def main() -> None:
     for i, n in enumerate(notes, 1):
         slugs[f"N{i}"] = f"note:{n['slug']}"
 
-    json.dump(
-        {
-            "system_prompt": prompt,
-            "estimated_tokens": ask.estimate_tokens(prompt),
-            "sources": slugs,
-            "max_tokens": config.ASK_MAX_TOKENS,
-            "temperature": config.ASK_TEMPERATURE,
-        },
-        sys.stdout,
-        ensure_ascii=False,
-    )
+    out = {
+        "system_prompt": prompt,
+        "estimated_tokens": tokens,
+        "sources": slugs,
+        "max_tokens": config.ASK_MAX_TOKENS,
+        "temperature": config.ASK_TEMPERATURE,
+    }
+    if summarize:
+        # The backend's own request for choosing; run.py puts each question
+        # where this one's is.
+        snap = ask.Snapshot(
+            key=(),
+            system_prompt=prompt,
+            sources=rendered.sources,
+            notes=rendered.notes,
+            read_tokens=budget - tokens,
+        )
+        choose = ask.Answer(snap, QUESTION).choose_request()
+        out |= {
+            "notes": rendered.notes,
+            "read_tokens": budget - tokens,
+            "max_read": ask.MAX_READ,
+            "choose": choose,
+        }
+    json.dump(out, sys.stdout, ensure_ascii=False)
 
 
 if __name__ == "__main__":

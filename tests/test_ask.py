@@ -58,12 +58,12 @@ def add_project(db, name, published=True, **fields):
     return project
 
 
-def add_note(db, name, published=True):
+def add_note(db, name, published=True, excerpt="x", content=None):
     note = LabNote(
         slug=PREFIX + name,
         title=f"Note {name}",
-        excerpt="x",
-        content=f"Body of {name}.",
+        excerpt=excerpt,
+        content=content or f"Body of {name}.",
         tags=[],
         read_time="1 min",
         date=date(2026, 9, 30),
@@ -177,20 +177,11 @@ async def test_prompt_size_and_budget_are_exported(async_sessions, monkeypatch):
     assert REGISTRY.get_sample_value("ask_documents_dropped") == 0
 
 
-@pytest.mark.anyio
-async def test_over_budget_leaves_out_the_oldest_notes_then_projects(
-    session_factory, async_sessions, monkeypatch
-):
-    from prometheus_client import REGISTRY
-
-    with session_factory() as db:
-        add_project(db, "old-project")
-        add_note(db, "old-note")
-        add_note(db, "new-note")
-    full = await build(async_sessions)
-
-    async def fit(tokens):
-        # A context that leaves exactly `tokens` for the system prompt.
+@pytest.fixture
+def fit(async_sessions, monkeypatch):
+    async def build_within(tokens):
+        """The snapshot for a context that leaves exactly `tokens` for the
+        system prompt."""
         monkeypatch.setattr(
             config,
             "ASK_CONTEXT_TOKENS",
@@ -198,14 +189,91 @@ async def test_over_budget_leaves_out_the_oldest_notes_then_projects(
         )
         return await build(async_sessions)
 
+    return build_within
+
+
+@pytest.mark.anyio
+async def test_notes_that_do_not_fit_in_full_go_in_as_summaries(
+    session_factory, async_sessions, fit
+):
+    from prometheus_client import REGISTRY
+
+    with session_factory() as db:
+        add_project(db, "project")
+        # Long enough that the summaries leave READ_TOKENS when it no longer
+        # fits in full.
+        long = "Body of old-note. " + "word " * ask.READ_TOKENS * 4
+        add_note(db, "old-note", excerpt="What the old note is about.", content=long)
+        add_note(db, "new-note")
+    full = await fit(10**6)
+    assert full.notes == {}
+    assert ask.SUMMARY_RULE not in full.system_prompt
+    assert REGISTRY.get_sample_value("ask_notes_summarized") == 0
+
     one_short = await fit(ask.estimate_tokens(full.system_prompt) - 1)
+
+    prompt = one_short.system_prompt
+    assert ask.SUMMARY_RULE in prompt
+    assert '<document id="N1" summary="yes">' in prompt
+    assert "Summary: What the old note is about." in prompt
+    assert "Body of old-note." not in prompt
+    # Nothing is left out: each note is read in full when a question needs it.
+    assert set(one_short.notes) == {"N1", "N2"}
+    assert "Body of old-note." in one_short.notes["N1"]
+    assert {s.title for s in one_short.sources.values()} == {
+        "Resume",
+        "Project project",
+        "Note old-note",
+        "Note new-note",
+    }
+    assert one_short.read_tokens == (
+        ask.estimate_tokens(full.system_prompt) - 1 - ask.estimate_tokens(prompt)
+    )
+    assert REGISTRY.get_sample_value("ask_notes_summarized") == 2
+    assert REGISTRY.get_sample_value("ask_documents_dropped") == 0
+
+
+@pytest.mark.anyio
+async def test_summaries_can_be_asked_for_while_everything_fits(
+    session_factory, async_sessions, monkeypatch
+):
+    with session_factory() as db:
+        add_note(db, "note")
+    monkeypatch.setattr(config, "ASK_SUMMARIZE_NOTES", True)
+
+    snap = await build(async_sessions)
+
+    assert set(snap.notes) == {"N1"}
+    assert "Body of note." not in snap.system_prompt
+
+
+@pytest.mark.anyio
+async def test_over_budget_leaves_out_the_oldest_notes_then_projects(
+    session_factory, async_sessions, monkeypatch, fit
+):
+    from prometheus_client import REGISTRY
+
+    with session_factory() as db:
+        add_project(db, "old-project")
+        add_note(db, "old-note")
+        add_note(db, "new-note")
+    monkeypatch.setattr(config, "ASK_SUMMARIZE_NOTES", True)
+    summaries = await build(async_sessions)
+
+    # The summaries keep READ_TOKENS free for the notes read in full.
+    one_short = await fit(
+        ask.estimate_tokens(summaries.system_prompt) + ask.READ_TOKENS - 1
+    )
     titles = {s.title for s in one_short.sources.values()}
     assert "Note old-note" not in titles
     assert {"Note new-note", "Project old-project", "Resume"} <= titles
+    assert set(one_short.notes) == {"N1"}
     assert REGISTRY.get_sample_value("ask_documents_dropped") == 1
 
     resume_only = await fit(1)
     assert set(resume_only.sources) == {"R1"}
+    assert resume_only.notes == {}
+    assert ask.SUMMARY_RULE not in resume_only.system_prompt
 
 
 # ── citations ────────────────────────────────────────────────────────────────
@@ -880,3 +948,140 @@ def test_the_longest_history_fits_the_room_kept_for_it():
     assert sum(ask.estimate_tokens(m["content"]) + 10 for m in history) <= (
         ask.history_tokens()
     )
+
+
+# ── notes read in full on demand ─────────────────────────────────────────────
+
+# The notes are summaries: N1 is read in full when a question needs it.
+SUMMARIES = ask.Snapshot(
+    key=(),
+    system_prompt="RULES AND SUMMARIES",
+    sources=SOURCES,
+    texts=PLACED.texts,
+    notes={"N1": "SVD (2026-02-05)\n\n## Rotations\nAny matrix is a rotation."},
+    read_tokens=1000,
+)
+
+
+@pytest.fixture
+def two_calls(model, monkeypatch):
+    """Serve `choice` to the call naming the notes to read (a reply's
+    content, or a Response) and `reply` as the answer's stream; returns what
+    the backend sent, in order."""
+    sent = []
+
+    def serve(choice, reply, snap=SUMMARIES):
+        def handler(request):
+            body = json.loads(request.content)
+            sent.append(body)
+            if body.get("stream"):
+                return httpx.Response(
+                    200, text=reply, headers={"content-type": "text/event-stream"}
+                )
+            if isinstance(choice, httpx.Response):
+                return choice
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": choice}}]}
+            )
+
+        async def fixed(db):
+            return snap
+
+        monkeypatch.setattr(ask, "_transport", httpx.MockTransport(handler))
+        monkeypatch.setattr(ask_route, "snapshot", fixed)
+        return sent
+
+    return serve
+
+
+def test_while_every_note_is_in_full_there_is_one_call(two_calls, client):
+    sent = two_calls('{"read": []}', model_stream(["Hi."]), snap=SNAPSHOT)
+    client.post("/api/v1/ask", json={"question": "Hi?"})
+    assert [body.get("stream") for body in sent] == [True]
+
+
+def test_the_model_names_the_notes_to_read_then_answers_with_them(two_calls, client):
+    from prometheus_client import REGISTRY
+
+    read_before = REGISTRY.get_sample_value("ask_notes_read_sum") or 0
+    sent = two_calls('{"read": ["N1"]}', model_stream(["It rotates [N1]."]))
+
+    response = client.post("/api/v1/ask", json={"question": "What is SVD?"})
+
+    choose, answer = sent
+    # Held to JSON naming only the summarized notes.
+    schema = choose["response_format"]["json_schema"]["schema"]
+    assert schema["properties"]["read"]["items"]["enum"] == ["N1"]
+    assert schema["properties"]["read"]["maxItems"] == ask.MAX_READ
+    assert "stream" not in choose
+    assert choose["temperature"] == 0
+    assert choose["messages"][-1]["content"].startswith("What is SVD?\n\n(Do not")
+    # The same system prompt both times: cached once for every question.
+    assert choose["messages"][0] == answer["messages"][0]
+    assert answer["messages"][-1]["content"] == (
+        '<documents>\n<document id="N1">\nSVD (2026-02-05)\n\n## Rotations\n'
+        "Any matrix is a rotation.\n</document>\n</documents>\n\nWhat is SVD?"
+    )
+    assert events(response.text)[-1][1]["citations"][0]["id"] == "N1"
+    assert REGISTRY.get_sample_value("ask_notes_read_sum") == read_before + 1
+
+
+def test_a_question_that_needs_no_note_is_sent_as_it_is(two_calls, client):
+    sent = two_calls('{"read": []}', model_stream(["He studied at Rice [R1]."]))
+    client.post("/api/v1/ask", json={"question": "Where did he study?"})
+    assert sent[1]["messages"][-1]["content"] == "Where did he study?"
+
+
+def test_the_note_a_passage_is_from_is_always_read(two_calls, client):
+    sent = two_calls('{"read": []}', model_stream(["It rotates [N1]."]))
+    client.post(
+        "/api/v1/ask",
+        json={
+            "question": "Why?",
+            "quote": "Any matrix is a rotation.",
+            "page": "/notes/svd",
+        },
+    )
+    assert sent[1]["messages"][-1]["content"].startswith(
+        '<documents>\n<document id="N1">'
+    )
+
+
+@pytest.mark.parametrize("choice", ["not json", '{"notes": ["N1"]}', '{"read": "N1"}'])
+def test_an_unreadable_choice_is_answered_from_the_summaries(two_calls, client, choice):
+    from prometheus_client import REGISTRY
+
+    failed = REGISTRY.get_sample_value("ask_choose_failed_total") or 0
+    sent = two_calls(choice, model_stream(["From the summary [N1]."]))
+
+    response = client.post("/api/v1/ask", json={"question": "What is SVD?"})
+
+    assert response.status_code == 200
+    assert sent[1]["messages"][-1]["content"] == "What is SVD?"
+    assert REGISTRY.get_sample_value("ask_choose_failed_total") == failed + 1
+
+
+def test_a_model_that_refuses_to_choose_is_503(two_calls, client):
+    sent = two_calls(httpx.Response(500, text="boom"), model_stream(["unused"]))
+    response = client.post("/api/v1/ask", json={"question": "What is SVD?"})
+    assert response.status_code == 503
+    assert len(sent) == 1
+
+
+def test_only_known_notes_are_read_once_each_while_they_fit():
+    notes = {f"N{i}": "x" * 35 for i in range(1, 6)}  # 10 tokens each, about
+    snap = ask.Snapshot(
+        key=(), system_prompt="", sources={}, notes=notes, read_tokens=10_000
+    )
+    answer = ask.Answer(snap, "?")
+    assert answer.to_read(["N9", "N2", "N2", "P1", "N1", "N3", "N4"]) == [
+        "N2",
+        "N1",
+        "N3",
+    ]
+
+    one = ask.estimate_tokens(ask.document("N1", notes["N1"]))
+    tight = ask.Snapshot(
+        key=(), system_prompt="", sources={}, notes=notes, read_tokens=2 * one - 1
+    )
+    assert ask.Answer(tight, "?").to_read(["N1", "N2", "N3"]) == ["N1"]

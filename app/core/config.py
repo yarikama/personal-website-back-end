@@ -155,8 +155,13 @@ ASK_MAX_TOKENS: int = config("ASK_MAX_TOKENS", cast=int, default=800)
 ASK_TEMPERATURE: float = config("ASK_TEMPERATURE", cast=float, default=0.3)
 # The answer model's context (vLLM's --max-model-len). The system prompt,
 # which holds every published document, gets what the question and the
-# answer leave; past that the oldest documents are left out.
+# answer leave. Past that the notes go in as summaries, and each question
+# reads the ones it needs in full; past even that the oldest documents are
+# left out.
 ASK_CONTEXT_TOKENS: int = config("ASK_CONTEXT_TOKENS", cast=int, default=16384)
+# Summaries even while every note still fits in full: to try reading notes
+# on demand, or to measure it, before the content outgrows the context.
+ASK_SUMMARIZE_NOTES: bool = config("ASK_SUMMARIZE_NOTES", cast=bool, default=False)
 # Answers generated at once; one more gets 503 at once instead of waiting
 # behind them on a GPU that cannot go any faster.
 ASK_MAX_CONCURRENT: int = config("ASK_MAX_CONCURRENT", cast=int, default=4)

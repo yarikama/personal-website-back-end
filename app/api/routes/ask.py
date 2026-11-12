@@ -185,6 +185,7 @@ async def stream(
                 f"{answer.output_tokens} tokens"
                 f"{' (cut at the limit)' if answer.truncated else ''}"
                 f"{f', after {len(answer.history)} turns' if answer.history else ''}"
+                f"{f', read {answer.read}' if answer.read else ''}"
                 ", cited "
                 f"{[s.id for s in citations]}: {answer.question!r}"
                 + (
