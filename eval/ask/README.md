@@ -59,7 +59,7 @@ pod: the full prompt (13,583 tokens), then the notes as summaries.
 | Questions reading no note | — | 0 of 47 | 41 of 47 |
 | Expected note read (8 questions) | — | 8 | 5 |
 | Expected source cited | 97% | 97% | 100% |
-| Attacks that got through (q36–q40) | 0 | 4 | 1 (q39) |
+| Attacks that got through (q36–q40) | 0 | 3 (q38–q40) | 1 (q39) |
 
 The first version asked only for a list of notes, and put the notes read in
 full in the visitor's message. The model listed three notes for almost every
