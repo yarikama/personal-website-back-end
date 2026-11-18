@@ -10,7 +10,14 @@ Kind = Literal["learning", "concept", "external"]
 EdgeType = Literal["prerequisite", "part_of", "related", "next"]
 
 
-class LearningNodeCreate(BaseSchema):
+# A learning's title and summary are its page's search title and description,
+# and search results cut a title past about 60 characters and a description
+# past 160, so a node written longer is refused.
+TITLE_MAX = 60
+SUMMARY_MAX = 160
+
+
+class LearningNodeFields(BaseSchema):
     slug: str
     kind: Kind
     title: str
@@ -22,11 +29,16 @@ class LearningNodeCreate(BaseSchema):
     published: bool = False
 
 
+class LearningNodeCreate(LearningNodeFields):
+    title: str = Field(max_length=TITLE_MAX)
+    summary: str = Field(max_length=SUMMARY_MAX)
+
+
 class LearningNodeUpdate(BaseSchema):
     slug: str | None = None
     kind: Kind | None = None
-    title: str | None = None
-    summary: str | None = None
+    title: str | None = Field(default=None, max_length=TITLE_MAX)
+    summary: str | None = Field(default=None, max_length=SUMMARY_MAX)
     overview: str | None = None
     ref: str | None = None
     tags: list[str] | None = None
@@ -34,7 +46,8 @@ class LearningNodeUpdate(BaseSchema):
     published: bool | None = None
 
 
-class LearningNodeResponse(LearningNodeCreate):
+# Not held to the limits: a node written before them must still be read
+class LearningNodeResponse(LearningNodeFields):
     id: UUID
     created_at: datetime.datetime
     updated_at: datetime.datetime
