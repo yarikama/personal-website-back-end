@@ -1424,6 +1424,37 @@ async def test_what_a_node_leads_to_depends_on_its_kind(tool, kind, ref, error):
     assert error in refused["error"]
 
 
+async def test_a_title_or_summary_too_long_for_search_is_refused(tool):
+    long_title = await tool(
+        "create_learning_node",
+        slug=f"{PREFIX}long",
+        kind="learning",
+        title="x" * 61,
+        summary="x",
+    )
+    assert "at most 60 characters" in long_title["error"]
+    long_summary = await tool(
+        "create_learning_node",
+        slug=f"{PREFIX}long",
+        kind="learning",
+        title="x",
+        summary="x" * 161,
+    )
+    assert "at most 160 characters" in long_summary["error"]
+    node = await new_node(tool, "fits")
+    refused = await tool(
+        "update_learning_node", id_or_slug=node["id"], summary="x" * 161
+    )
+    assert "at most 160 characters" in refused["error"]
+    fits = await tool(
+        "update_learning_node",
+        id_or_slug=node["id"],
+        title="x" * 60,
+        summary="x" * 160,
+    )
+    assert (len(fits["title"]), len(fits["summary"])) == (60, 160)
+
+
 async def test_other_kinds_keep_their_ref(tool):
     paper = await new_node(
         tool, "paper", "external", ref="https://arxiv.org/abs/1706.03762"

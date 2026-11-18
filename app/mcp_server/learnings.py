@@ -25,6 +25,8 @@ from mcp_server.common import (
     who,
 )
 from schemas.learnings import (
+    SUMMARY_MAX,
+    TITLE_MAX,
     EdgeType,
     Kind,
     LearningNodeCreate,
@@ -48,9 +50,22 @@ Ref = Annotated[
         "/learnings/<slug> if omitted; external: an https:// URL; concept: none"
     ),
 ]
+Title = Annotated[
+    str,
+    Field(
+        max_length=TITLE_MAX,
+        description=f"At most {TITLE_MAX} characters: a learning's title is its "
+        "page's search title, so use the words people search for",
+    ),
+]
 Summary = Annotated[
     str,
-    Field(description="One to three sentences for its card and preview"),
+    Field(
+        max_length=SUMMARY_MAX,
+        description="One to three sentences for its card and preview, at most "
+        f"{SUMMARY_MAX} characters: a learning's summary is its page's search "
+        "description",
+    ),
 ]
 Overview = Annotated[
     str | None,
@@ -125,7 +140,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
     async def create_learning_node(
         slug: Slug,
         kind: KindField,
-        title: str,
+        title: Title,
         summary: Summary,
         overview: Overview = None,
         ref: Ref = None,
@@ -164,7 +179,7 @@ def register(server: MCPServer, sessions: async_sessionmaker[AsyncSession]) -> N
         id_or_slug: IdOrSlug,
         slug: Slug | None = None,
         kind: KindField | None = None,
-        title: str | None = None,
+        title: Title | None = None,
         summary: Summary | None = None,
         overview: Overview = None,
         ref: Ref = None,
