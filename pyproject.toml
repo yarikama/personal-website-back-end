@@ -18,6 +18,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.0,<2.1",
     "alembic>=1.13.0",
     "pyjwt>=2.10",
+    # Encrypts the Google Calendar refresh token at rest (services/google_calendar.py).
+    "cryptography>=46",
     "aioboto3>=12.0.0",
     "python-multipart>=0.0.31",
     "redis>=6",

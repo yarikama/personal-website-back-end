@@ -12,6 +12,11 @@ by the API so the site loads no script from Google.
 The ID token comes straight from Google's token endpoint over TLS, so its
 signature is not checked again (OpenID Connect Core 3.1.3.7, step 6); its
 issuer, audience, expiry and nonce are.
+
+The same flow connects the owner's Google Calendar to the admin
+(services/google_calendar.py): start(calendar=True) also asks for read-only
+calendar access and a refresh token, and finish() hands that token back
+instead of signing anyone in.
 """
 
 import base64
@@ -30,6 +35,8 @@ from redis.asyncio import Redis
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
+# Read-only access to every calendar in the owner's list, and its events.
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 STATE_TTL_SECONDS = 10 * 60
 # Leeway for the clocks of this server and Google's.
 CLOCK_SKEW_SECONDS = 60
@@ -65,6 +72,8 @@ class SignedIn:
     email: str
     next: str
     mcp: str | None
+    # Connecting the calendar: the refresh token to keep. No session then.
+    calendar_token: str | None = None
 
 
 def state_key(state: str) -> str:
@@ -77,31 +86,48 @@ def code_challenge(verifier: str) -> str:
 
 
 async def start(
-    redis: Redis, client: Client, next_path: str, mcp: str | None = None
+    redis: Redis,
+    client: Client,
+    next_path: str,
+    mcp: str | None = None,
+    calendar: bool = False,
 ) -> Started:
     """`mcp`: the MCP sign-in request this is for (services/mcp_oauth.py),
-    if any; finish() hands it back."""
+    if any; finish() hands it back. `calendar`: connect the owner's
+    calendar instead of signing in."""
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)  # 86 characters; PKCE allows 43-128
     nonce = secrets.token_urlsafe(16)
-    kept = {"verifier": verifier, "nonce": nonce, "next": next_path, "mcp": mcp}
+    kept = {
+        "verifier": verifier,
+        "nonce": nonce,
+        "next": next_path,
+        "mcp": mcp,
+        "calendar": calendar,
+    }
     await redis.set(state_key(state), json.dumps(kept), ex=STATE_TTL_SECONDS)
-    query = urlencode(
-        {
-            "client_id": client.client_id,
-            "redirect_uri": client.redirect_uri,
-            "response_type": "code",
-            "scope": "openid email",
-            "state": state,
-            "nonce": nonce,
-            "code_challenge": code_challenge(verifier),
-            "code_challenge_method": "S256",
-            # Always ask which account, so signing in with the wrong one is
-            # easy to undo.
-            "prompt": "select_account",
+    params = {
+        "client_id": client.client_id,
+        "redirect_uri": client.redirect_uri,
+        "response_type": "code",
+        "scope": "openid email",
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": code_challenge(verifier),
+        "code_challenge_method": "S256",
+        # Always ask which account, so signing in with the wrong one is
+        # easy to undo.
+        "prompt": "select_account",
+    }
+    if calendar:
+        # offline: a refresh token, so the calendar can be read later.
+        # Google gives one only on consent, so consent is always asked.
+        params |= {
+            "scope": f"openid email {CALENDAR_SCOPE}",
+            "access_type": "offline",
+            "prompt": "consent select_account",
         }
-    )
-    return Started(state=state, url=f"{AUTHORIZE_URL}?{query}")
+    return Started(state=state, url=f"{AUTHORIZE_URL}?{urlencode(params)}")
 
 
 async def take_state(redis: Redis, state: str) -> dict[str, Any]:
@@ -149,6 +175,14 @@ async def exchange_code(
     client: Client, code: str, verifier: str, http: httpx.AsyncClient
 ) -> str:
     """Trade the authorization code for an ID token."""
+    return (await exchange_tokens(client, code, verifier, http))["id_token"]
+
+
+async def exchange_tokens(
+    client: Client, code: str, verifier: str, http: httpx.AsyncClient
+) -> dict[str, Any]:
+    """Trade the authorization code for Google's tokens: always an ID
+    token, and a refresh token when one was asked for."""
     try:
         response = await http.post(
             TOKEN_URL,
@@ -170,10 +204,10 @@ async def exchange_code(
             "failed",
             f"token endpoint answered {response.status_code}: {response.text[:200]}",
         )
-    id_token = response.json().get("id_token")
-    if not id_token:
+    tokens = response.json()
+    if not tokens.get("id_token"):
         raise SignInError("failed", "token endpoint returned no ID token")
-    return id_token
+    return tokens
 
 
 async def finish(
@@ -185,6 +219,29 @@ async def finish(
     http: httpx.AsyncClient,
 ) -> SignedIn:
     kept = await take_state(redis, state)
+    if kept.get("calendar"):
+        return await finish_calendar(client, allowed, kept, code, http)
     id_token = await exchange_code(client, code, kept["verifier"], http)
     claims = check_id_token(id_token, client.client_id, kept["nonce"])
     return SignedIn(allowed_email(claims, allowed), kept["next"], kept.get("mcp"))
+
+
+async def finish_calendar(
+    client: Client,
+    allowed: frozenset[str],
+    kept: dict[str, Any],
+    code: str,
+    http: httpx.AsyncClient,
+) -> SignedIn:
+    """Connecting the calendar: the owner's account, which granted calendar
+    access (Google's consent page lets a scope be unticked) and gave a
+    refresh token."""
+    tokens = await exchange_tokens(client, code, kept["verifier"], http)
+    claims = check_id_token(tokens["id_token"], client.client_id, kept["nonce"])
+    email = allowed_email(claims, allowed)
+    if CALENDAR_SCOPE not in str(tokens.get("scope", "")).split():
+        raise SignInError("calendar_denied", "calendar access was not granted")
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        raise SignInError("failed", "token endpoint returned no refresh token")
+    return SignedIn(email, kept["next"], None, calendar_token=str(refresh_token))

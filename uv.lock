@@ -2448,6 +2448,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
     { name = "alembic" },
+    { name = "cryptography" },
     { name = "fastapi", version = "0.162.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "fastapi", version = "0.164.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "httpx" },
@@ -2491,6 +2492,7 @@ dev = [
 requires-dist = [
     { name = "aioboto3", specifier = ">=12.0.0" },
     { name = "alembic", specifier = ">=1.13.0" },
+    { name = "cryptography", specifier = ">=46" },
     { name = "fakeredis", extras = ["lua"], marker = "extra == 'dev'", specifier = ">=2.30" },
     { name = "fastapi", specifier = ">=0.103.0" },
     { name = "httpx", specifier = ">=0.27.0" },
