@@ -6,6 +6,7 @@ from api.routes import (
     attention,
     auth,
     autocomplete,
+    calendar,
     categories,
     contact,
     csp,
@@ -40,3 +41,4 @@ router.include_router(planner.router, tags=["admin"], prefix="/v1")
 router.include_router(sitemap.router, tags=["seo"], prefix="/v1")
 router.include_router(visitors.router, tags=["admin"], prefix="/v1")
 router.include_router(attention.router, tags=["admin"], prefix="/v1")
+router.include_router(calendar.router, tags=["admin"], prefix="/v1")

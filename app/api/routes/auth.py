@@ -12,6 +12,12 @@ The same sign-in lets Claude into the writing MCP server
 page here with ?mcp=<request id>; once the owner allows the client, Google
 sign-in carries the id along, and the callback sends the browser back to
 the MCP client with an authorization code instead of starting a session.
+
+Connecting the owner's Google Calendar (GET /auth/google/calendar, signed
+in already) runs the same sign-in with read-only calendar access: the
+callback keeps the refresh token (services/google_calendar.py) and sends the
+browser back to the admin with ?calendar=connected, or ?calendar=denied when
+calendar access was unticked on Google's page.
 """
 
 import re
@@ -28,12 +34,14 @@ from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies.auth import CurrentAdmin
 from api.dependencies.redis import get_redis
 from core import config
+from db.dependency import DB
 from schemas.auth import AdminResponse
-from services import admin_session, google_oauth, mcp_oauth
+from services import admin_session, google_calendar, google_oauth, mcp_oauth
 
 router = APIRouter()
 
@@ -88,6 +96,41 @@ def safe_next(path: str | None) -> str:
     return "/admin"
 
 
+def with_state_cookie(url: str, state: str) -> RedirectResponse:
+    response = RedirectResponse(url, status_code=303)
+    response.set_cookie(
+        STATE_COOKIE,
+        state,
+        max_age=google_oauth.STATE_TTL_SECONDS,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+def to_admin(calendar: str) -> RedirectResponse:
+    query = urlencode({"calendar": calendar})
+    return RedirectResponse(f"{config.SITE_URL}/admin?{query}", status_code=303)
+
+
+@router.get("/auth/google/calendar", include_in_schema=False)
+async def google_calendar_connect(request: Request, _admin: CurrentAdmin) -> Response:
+    """Connects the owner's Google Calendar, read-only: Google asks for
+    consent, and the callback keeps the token."""
+    client = google_client()
+    redis = get_redis(request.app)
+    if client is None or redis is None:
+        return to_admin("not_configured")
+    try:
+        started = await google_oauth.start(redis, client, "/admin", calendar=True)
+    except Exception as error:
+        logger.warning(f"Connecting the calendar could not start: {error!r}")
+        return to_admin("unavailable")
+    return with_state_cookie(started.url, started.state)
+
+
 @router.get("/auth/google/login", include_in_schema=False)
 async def google_login(
     request: Request, next: str | None = None, mcp: str | None = None
@@ -107,22 +150,13 @@ async def google_login(
     except Exception as error:
         logger.warning(f"Google sign-in could not start: {error!r}")
         return to_login_page("unavailable")
-    response = RedirectResponse(started.url, status_code=303)
-    response.set_cookie(
-        STATE_COOKIE,
-        started.state,
-        max_age=google_oauth.STATE_TTL_SECONDS,
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="lax",
-    )
-    return response
+    return with_state_cookie(started.url, started.state)
 
 
 @router.get("/auth/google/callback", include_in_schema=False)
 async def google_callback(
     request: Request,
+    db: DB,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -144,6 +178,8 @@ async def google_callback(
                 redis, client, config.ADMIN_EMAILS, state, code, http
             )
         email = signed_in.email
+        if signed_in.calendar_token is not None:
+            return await keep_calendar(db, client, email, signed_in.calendar_token)
         if signed_in.mcp is not None:
             return await to_mcp_client(request, signed_in.mcp, email)
         token = await admin_session.create(
@@ -151,6 +187,8 @@ async def google_callback(
         )
     except google_oauth.SignInError as failure:
         logger.warning(f"Google sign-in refused ({failure.reason}): {failure}")
+        if failure.reason == "calendar_denied":
+            return to_admin("denied")
         return to_login_page(failure.reason)
     except Exception as failure:
         logger.warning(f"Google sign-in failed: {failure!r}")
@@ -167,6 +205,18 @@ async def google_callback(
         httponly=True,
         samesite="strict",
     )
+    response.delete_cookie(STATE_COOKIE, path="/", secure=True, httponly=True)
+    return response
+
+
+async def keep_calendar(
+    db: AsyncSession, client: google_oauth.Client, email: str, token: str
+) -> Response:
+    """Keeps the calendar's refresh token and returns to the admin."""
+    await google_calendar.save(db, client, google_calendar.Connection(email, token))
+    await db.commit()
+    logger.info(f"Google Calendar connected: {email}")
+    response = to_admin("connected")
     response.delete_cookie(STATE_COOKIE, path="/", secure=True, httponly=True)
     return response
 
