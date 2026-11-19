@@ -457,3 +457,185 @@ async def test_the_report_as_json_names_each_event_s_calendar():
     data = google_calendar.as_json(report)
     assert data["events"][0]["calendar_id"] == data["calendars"][0]["id"] == "cal"
     assert json.dumps(data)
+
+
+# When something goes wrong
+
+
+def unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("no route to Google", request=request)
+
+
+async def test_connecting_again_replaces_the_kept_token(setting, async_sessions):
+    async with async_sessions() as db:
+        await google_calendar.save(db, CLIENT, CONNECTION)
+        await db.commit()
+    again = Connection(OWNER, "a-newer-refresh-token")
+    async with async_sessions() as db:
+        await google_calendar.save(db, CLIENT, again)
+        await db.commit()
+    with setting() as db:
+        rows = db.scalars(
+            select(AdminSetting).where(AdminSetting.key == google_calendar.KEY)
+        ).all()
+    assert len(rows) == 1
+    async with async_sessions() as db:
+        assert await google_calendar.load(db, CLIENT) == again
+
+
+async def test_forgetting_with_nothing_kept_is_fine(setting, async_sessions):
+    async with async_sessions() as db:
+        await google_calendar.forget(db)
+        await db.commit()
+        assert await google_calendar.load(db, CLIENT) is None
+
+
+async def test_google_out_of_reach_is_unavailable():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unreachable)) as http:
+        with pytest.raises(google_calendar.CalendarUnavailableError):
+            await google_calendar.report(CONNECTION, CLIENT, http, MONDAY, 7)
+
+
+async def test_the_token_endpoint_failing_otherwise_is_unavailable(fake):
+    # Not a refused token: Google itself is having trouble.
+    fake.token_status = 503
+    async with http_for(fake) as http:
+        with pytest.raises(google_calendar.CalendarUnavailableError) as raised:
+            await google_calendar.report(CONNECTION, CLIENT, http, MONDAY, 7)
+    assert "503" in str(raised.value)
+
+
+async def test_the_calendar_api_out_of_reach_is_unavailable(fake):
+    def handle(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == google_oauth.TOKEN_URL:
+            return fake.handle(request)
+        return unreachable(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        with pytest.raises(google_calendar.CalendarUnavailableError):
+            await google_calendar.report(CONNECTION, CLIENT, http, MONDAY, 7)
+
+
+async def test_an_access_token_revoked_early_is_asked_for_again(fake):
+    refused = {"left": 1}
+    handle = fake.handle
+
+    def once_refused(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/calendarList") and refused["left"]:
+            refused["left"] -= 1
+            return httpx.Response(401, json={"error": {"message": "Invalid"}})
+        return handle(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(once_refused)) as http:
+        with pytest.raises(google_calendar.CalendarUnavailableError):
+            await google_calendar.report(CONNECTION, CLIENT, http, MONDAY, 7)
+        report = await google_calendar.report(CONNECTION, CLIENT, http, MONDAY, 7)
+    assert len(report.events) == 4
+    assert fake.token_calls == 2
+
+
+async def test_revoking_out_of_reach_is_only_logged():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unreachable)) as http:
+        await google_calendar.revoke(CONNECTION, http)
+
+
+async def test_connecting_without_google_set_up_says_so(client, sign_in, monkeypatch):
+    headers = await sign_in(OWNER)
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "")
+    response = await client.get("/api/v1/auth/google/calendar", headers=headers)
+    assert response.status_code == 303
+    assert response.headers["location"] == f"{SITE}/admin?calendar=not_configured"
+
+
+async def test_connecting_when_it_cannot_start_says_so(client, sign_in, monkeypatch):
+    async def start(*args, **kwargs):
+        raise RuntimeError("redis went away")
+
+    monkeypatch.setattr(google_oauth, "start", start)
+    headers = await sign_in(OWNER)
+    response = await client.get("/api/v1/auth/google/calendar", headers=headers)
+    assert response.status_code == 303
+    assert response.headers["location"] == f"{SITE}/admin?calendar=unavailable"
+
+
+async def test_no_refresh_token_from_google_keeps_nothing(
+    client, sign_in, token_endpoint, async_sessions
+):
+    token_endpoint["refresh_token"] = None
+    _, query = await connect(client, sign_in)
+    response = await client.get(
+        "/api/v1/auth/google/callback",
+        params={"code": "the-code", "state": query["state"][0]},
+    )
+    assert response.headers["location"] == f"{SITE}/admin/login?error=failed"
+    async with async_sessions() as db:
+        assert await google_calendar.load(db, CLIENT) is None
+
+
+async def keep_and_answer(async_sessions, monkeypatch, failure: Exception):
+    async with async_sessions() as db:
+        await google_calendar.save(db, CLIENT, CONNECTION)
+        await db.commit()
+
+    async def report(*args):
+        raise failure
+
+    monkeypatch.setattr(google_calendar, "report", report)
+
+
+async def read_week(client, sign_in):
+    headers = await sign_in(OWNER)
+    return await client.get(
+        "/api/v1/admin/calendar",
+        params={"start": MONDAY.isoformat(), "days": 7},
+        headers=headers,
+    )
+
+
+async def test_the_page_says_when_the_token_expired(
+    client, sign_in, async_sessions, monkeypatch
+):
+    await keep_and_answer(async_sessions, monkeypatch, NotConnectedError(expired=True))
+    response = await read_week(client, sign_in)
+    assert response.status_code == 200
+    assert response.json() == {"data": {"connected": False, "expired": True}}
+
+
+async def test_the_page_says_when_google_is_unavailable(
+    client, sign_in, async_sessions, monkeypatch
+):
+    await keep_and_answer(
+        async_sessions,
+        monkeypatch,
+        google_calendar.CalendarUnavailableError("calendarList: 500"),
+    )
+    response = await read_week(client, sign_in)
+    assert response.status_code == 502
+
+
+async def test_the_page_without_google_set_up_is_unavailable(
+    client, sign_in, monkeypatch
+):
+    headers = await sign_in(OWNER)
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "")
+    response = await client.get(
+        "/api/v1/admin/calendar",
+        params={"start": MONDAY.isoformat(), "days": 7},
+        headers=headers,
+    )
+    assert response.status_code == 503
+
+
+async def test_disconnecting_with_nothing_connected_revokes_nothing(
+    client, sign_in, monkeypatch
+):
+    revoked = []
+
+    async def revoke(connection, http):
+        revoked.append(connection)
+
+    monkeypatch.setattr(google_calendar, "revoke", revoke)
+    headers = await sign_in(OWNER)
+    response = await client.delete("/api/v1/admin/calendar", headers=headers)
+    assert response.status_code == 204
+    assert revoked == []
